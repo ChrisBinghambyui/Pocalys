@@ -2,6 +2,13 @@
 
 #include <vector>
 #include "Enemy.h"
+#include "Item.h"
+
+struct GroundItem {
+    int x;
+    int y;
+    Item item;
+};
 
 // 1. Define TileType FIRST
 enum TileType {
@@ -20,6 +27,7 @@ struct LevelState {
     TileType savedMap[mapWidth][mapHeight];
     bool savedExplored[mapWidth][mapHeight];
     std::vector<Enemy> savedEnemies; // Corpses and survivors both persist here
+    std::vector<GroundItem> savedItems;
 };
 
 // A handy struct to keep track of our rooms and find their centers

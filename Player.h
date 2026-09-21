@@ -1,10 +1,14 @@
 #pragma once
 #include <vector>
+#include <string>
 #include "Item.h"
-#include "ItemData.h" // For EquipSlot
+#include "ItemData.h"
 
-// NEW: Everything that makes up our player character
 struct Player {
+    std::string name;
+    std::string className;
+    std::string birthsign;
+
     int x;
     int y;
     int hp;
@@ -22,7 +26,7 @@ struct Player {
     int lck;
 
     std::vector<Item> inventory;               // Carried, unequipped items
-    Item equippedSlots[SLOT_SINGLE_COUNT];      // Indexed by EquipSlot, empty archetypeId = nothing equipped
-    std::vector<Item> equippedAmulets;          // Cap 2, enforced at equip time
-    std::vector<Item> equippedRings;            // Cap 10, enforced at equip time
+    Item equippedSlots[SLOT_SINGLE_COUNT];      // Indexed by EquipSlot
+    std::vector<Item> equippedAmulets;          // Cap 2
+    std::vector<Item> equippedRings;            // Cap 10
 };

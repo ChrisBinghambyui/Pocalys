@@ -124,6 +124,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="CharacterGenerator.cpp" />
     <ClCompile Include="Combat.cpp" />
     <ClCompile Include="Durability.cpp" />
     <ClCompile Include="EnemyData.cpp" />
@@ -137,6 +138,7 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CharacterGenerator.h" />
     <ClInclude Include="Combat.h" />
     <ClInclude Include="DungeonData.h" />
     <ClInclude Include="Durability.h" />

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 enum EquipSlot {
     SLOT_HELMET,
@@ -33,3 +34,5 @@ struct ItemArchetype
     int damage_dice_sides;
     int damage_bonus;
 };
+
+extern std::vector<ItemArchetype> G_ITEM_ARCHETYPES;

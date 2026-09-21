@@ -1,13 +1,88 @@
 #include <raylib.h>
 #include <vector>
-#include <algorithm> // for std::min, std::max
-#include <cmath> // NEW: For calculating stair distance
-#include "DungeonData.h" // Links our custom data structures
-#include "Player.h" // Links our new Player struct
-#include "Enemy.h" // Links our new Enemy struct
-#include "Combat.h" // NEW: Bump-combat resolution
-#include <vector>  // Ensure we can use lists
-#include <string>  // NEW: Ensure we can use strings for text messages
+#include <algorithm>
+#include <cmath>
+#include "DungeonData.h"
+#include "Player.h"
+#include "Enemy.h"
+#include "Combat.h"
+#include "WeaponData.h"
+#include "MaterialData.h"
+#include "ItemData.h"
+#include "CharacterGenerator.h"
+#include <string>
+
+enum GameState {
+    STATE_TITLE,
+    STATE_TAVERN,
+    STATE_GAMEPLAY
+};
+
+const std::vector<std::string> G_TITLE_BANNER = {
+    " ____   ____   ____   _     _    __   ______ ",
+    "|  _ \\ / __ \\ / ___| / \\   | |   \\ \\ / / ___|",
+    "| |_) | |  | | |    / _ \\  | |    \\ V /\\___ \\",
+    "|  __/| |__| | |___/ ___ \\ | |___  | |  ___) |",
+    "|_|    \\____/ \\____/_/   \\_\\|_____| |_| |____/ "
+};
+
+Color GetFireColor(int intensity) {
+    if (intensity <= 0) return BLACK;
+    if (intensity < 7)  return Color{ 70, 10, 15, 255 };
+    if (intensity < 14) return Color{ 170, 30, 10, 255 };
+    if (intensity < 21) return Color{ 230, 90, 10, 255 };
+    if (intensity < 28) return Color{ 245, 190, 20, 255 };
+    return Color{ 255, 240, 200, 255 };
+}
+
+char GetFireChar(int intensity) {
+    const char fireRamp[] = " .:-=+*#%@";
+    int idx = std::min(9, std::max(0, (intensity * 10) / 36));
+    return fireRamp[idx];
+}
+
+void UpdateFire(std::vector<int>& fireGrid, int width, int height) {
+    for (int x = 0; x < width; x++) {
+        fireGrid[(height - 1) * width + x] = (GetRandomValue(0, 3) == 0) ? 0 : 35;
+    }
+    for (int y = 1; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int srcIndex = y * width + x;
+            int srcValue = fireGrid[srcIndex];
+            if (srcValue == 0) {
+                fireGrid[(y - 1) * width + x] = 0;
+            }
+            else {
+                int randX = GetRandomValue(-1, 1);
+                int decay = GetRandomValue(0, 2);
+                int dstX = std::max(0, std::min(width - 1, x + randX));
+                int dstY = y - 1;
+                fireGrid[dstY * width + dstX] = std::max(0, srcValue - decay);
+            }
+        }
+    }
+}
+
+std::string GetEnemyName(const Enemy& enemy) {
+    if (enemy.symbol == 'g') return "goblin";
+    return "creature";
+}
+
+std::string GetGroundItemName(const Item& item) {
+    if (item.weaponTypeId >= 0) {
+        std::string mat = (item.materialTier >= 0 && item.materialTier < (int)G_MATERIAL_TIERS.size())
+            ? G_MATERIAL_TIERS[item.materialTier].name + " "
+            : "";
+        return mat + G_WEAPON_TYPES[item.weaponTypeId].name;
+    }
+    else if (!item.archetypeId.empty()) {
+        for (const auto& arch : G_ITEM_ARCHETYPES) {
+            if (arch.id == item.archetypeId) return arch.name;
+        }
+        return item.archetypeId;
+    }
+    return "item";
+}
 
 void GenerateFloor(TileType map[mapWidth][mapHeight], bool explored[mapWidth][mapHeight], std::vector<Room>& rooms, Player& player, std::vector<Enemy>& enemies) {
     rooms.clear();
@@ -54,133 +129,390 @@ void GenerateFloor(TileType map[mapWidth][mapHeight], bool explored[mapWidth][ma
     player.x = rooms[0].centerX() + 1;
     player.y = rooms[0].centerY();
 
-    // Clear out old enemies when making a new floor
     enemies.clear();
-
-    // Start at 1 to skip the first room (where the player spawns!)
-    for (int i = 1; i < rooms.size(); i++) {
+    for (size_t i = 1; i < rooms.size(); i++) {
         Enemy goblin;
         goblin.x = rooms[i].x + rooms[i].width / 2;
         goblin.y = rooms[i].y + rooms[i].height / 2;
-        goblin.str = 30;
-        goblin.end = 35;
-        goblin.agi = 45;
-        goblin.intel = 20;
-        goblin.wil = 20;
-        goblin.per = 15;
-        goblin.lck = 20;
-
-        goblin.maxHp = goblin.end / 5;
-        goblin.hp = goblin.maxHp;
-
-        goblin.maxMana = goblin.intel / 5;
-        goblin.mana = goblin.maxMana;
-
-        goblin.maxStamina = (goblin.end + goblin.str + goblin.agi + 40) / 10;
-        goblin.stamina = goblin.maxStamina;
-        goblin.symbol = 'g';
-        goblin.color = GREEN;
-        goblin.isDead = false;
-
+        goblin.str = 30; goblin.end = 35; goblin.agi = 45;
+        goblin.intel = 20; goblin.wil = 20; goblin.per = 15; goblin.lck = 20;
+        goblin.maxHp = goblin.end / 5; goblin.hp = goblin.maxHp;
+        goblin.maxMana = goblin.intel / 5; goblin.mana = goblin.maxMana;
+        goblin.maxStamina = (goblin.end + goblin.str + goblin.agi + 40) / 10; goblin.stamina = goblin.maxStamina;
+        goblin.symbol = 'g'; goblin.color = GREEN; goblin.isDead = false;
         enemies.push_back(goblin);
     }
+}
+
+void ApplyProfileToPlayer(const CharacterProfile& profile, Player& player) {
+    player.name = profile.name;
+    player.className = profile.className;
+    player.birthsign = profile.birthsign;
+    player.str = profile.str; player.end = profile.end; player.agi = profile.agi;
+    player.intel = profile.intel; player.wil = profile.wil; player.per = profile.per; player.lck = profile.lck;
+    player.maxHp = profile.maxHp; player.hp = profile.hp;
+    player.maxStamina = profile.maxStamina; player.stamina = profile.stamina;
+    player.maxMana = profile.maxMana; player.mana = profile.mana;
+    player.inventory = profile.inventory;
+    for (int i = 0; i < SLOT_SINGLE_COUNT; i++) player.equippedSlots[i] = profile.equippedSlots[i];
+    player.equippedAmulets.clear(); player.equippedRings.clear();
 }
 
 int main()
 {
     const int tileSize = 24;
-
-    // We accidentally deleted the window setup! Let's put it back.
-    // NEW: Tell Raylib we want a resizable window with a maximize button
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
 
-    const int screenWidth = 1280;
-    const int screenHeight = 720;
-    InitWindow(screenWidth, screenHeight, "Pocalys");
+    int currentMonitor = GetCurrentMonitor();
+    int screenWidth = GetMonitorWidth(currentMonitor);
+    int screenHeight = GetMonitorHeight(currentMonitor);
+
+    InitWindow(screenWidth, screenHeight, "Scrolls & Steel");
+    SetExitKey(KEY_NULL);
+    ToggleBorderlessWindowed();
     SetTargetFPS(60);
 
-    // Re-declare the variables so they actually exist in main's memory
     TileType map[mapWidth][mapHeight];
     bool explored[mapWidth][mapHeight] = { false };
     std::vector<Room> rooms;
     std::vector<LevelState> dungeon;
     int currentFloor = 0;
-    std::vector<Enemy> enemies; // Holds all monsters on the current floor
-    std::string actionMessage = "Welcome to the dungeon!";
-    // NEW: Define our four interaction types and a way to display their names
+    std::vector<Enemy> enemies;
+    std::vector<GroundItem> groundItems;
+    std::string actionMessage = "";
+
     enum ActionMode { MODE_GRAB, MODE_LOOK, MODE_SPEAK, MODE_STEAL };
-    ActionMode currentMode = MODE_LOOK; // Start on Look by default
+    ActionMode currentMode = MODE_LOOK;
     const char* modeNames[] = { "GRAB", "LOOK", "SPEAK", "STEAL" };
 
-    // Create the player entity: X, Y, HP, MaxHP, SP, MaxSP, MP, MaxMP
     Player player;
-    player.x = 0;
-    player.y = 0;
+    GameState currentState = STATE_TITLE;
+    int titleMenuSelection = 0;
 
-    // Archetype: The Knight
-    player.str = 65;
-    player.end = 55;
-    player.agi = 35;
-    player.intel = 25;
-    player.wil = 25;
-    player.per = 35;
-    player.lck = 30;
+    std::vector<CharacterProfile> tavernCandidates;
+    int selectedCandidate = 0;
 
-    player.maxHp = player.end / 5;
-    player.hp = player.maxHp;
-
-    player.maxMana = player.intel / 5;
-    player.mana = player.maxMana;
-
-    // Base SPD of 40 used for missing speed attribute
-    player.maxStamina = (player.end + player.str + player.agi + 40) / 10;
-    player.stamina = player.maxStamina;
-
-    // Pass the player struct into our generator
-    GenerateFloor(map, explored, rooms, player, enemies);
-
-    // NEW: Save this initial layout into the dungeon memory
-    LevelState firstFloor;
-    for (int x = 0; x < mapWidth; x++) {
-        for (int y = 0; y < mapHeight; y++) {
-            firstFloor.savedMap[x][y] = map[x][y];
-            firstFloor.savedExplored[x][y] = explored[x][y];
-        }
-    }
-    firstFloor.savedEnemies = enemies;
-    dungeon.push_back(firstFloor);
+    const int FIRE_W = 90; const int FIRE_H = 45;
+    std::vector<int> fireGrid(FIRE_W * FIRE_H, 0);
 
     bool enableFog = true;
+    bool showInventory = false;
+    int selectedItemIndex = 0;
+    bool showPauseMenu = false;
+    int pauseMenuSelection = 0;
 
-    // NEW: Create and configure the 2D Camera
     Camera2D camera = { 0 };
-    // Offset the camera so its target is in the exact center of our window
     camera.offset = { screenWidth / 2.0f, screenHeight / 2.0f };
     camera.rotation = 0.0f;
-    camera.zoom = 1.5f; // Zoom in slightly so the tiles look chunky!
-    // NEW: Snap the camera to the player immediately when the game starts
-    camera.target = { (float)player.x * tileSize + (tileSize / 2.0f), (float)player.y * tileSize + (tileSize / 2.0f) };
+    camera.zoom = 1.5f;
 
-    while (!WindowShouldClose())
+    bool keepRunning = true;
+    while (keepRunning && !WindowShouldClose())
     {
-        // --- INPUT & UPDATE ---
-        // NEW: Constantly update the camera's center in case the window gets resized
+        UpdateFire(fireGrid, FIRE_W, FIRE_H);
+
+        // --- TITLE STATE ---
+        if (currentState == STATE_TITLE)
+        {
+            const int titleOptionCount = 3;
+            if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
+                titleMenuSelection--;
+                if (titleMenuSelection < 0) titleMenuSelection = titleOptionCount - 1;
+            }
+            if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+                titleMenuSelection++;
+                if (titleMenuSelection >= titleOptionCount) titleMenuSelection = 0;
+            }
+
+            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_E)) {
+                if (titleMenuSelection == 0) {
+                    tavernCandidates = GenerateTavernCandidates(6);
+                    selectedCandidate = 0;
+                    currentState = STATE_TAVERN;
+                }
+                else if (titleMenuSelection == 1) {
+                    actionMessage = "Options coming soon!";
+                }
+                else if (titleMenuSelection == 2) {
+                    keepRunning = false;
+                }
+            }
+
+            BeginDrawing();
+            ClearBackground(BLACK);
+            float cellW = (float)GetScreenWidth() / FIRE_W;
+            float cellH = (float)GetScreenHeight() / FIRE_H;
+            int bannerW = (int)G_TITLE_BANNER[0].length();
+            int bannerH = (int)G_TITLE_BANNER.size();
+            int startX = (FIRE_W - bannerW) / 2;
+            int startY = 10;
+
+            for (int y = 0; y < FIRE_H; y++) {
+                for (int x = 0; x < FIRE_W; x++) {
+                    int intensity = fireGrid[y * FIRE_W + x];
+                    int bx = x - startX, by = y - startY;
+                    bool isTitlePixel = (by >= 0 && by < bannerH && bx >= 0 && bx < bannerW && G_TITLE_BANNER[by][bx] != ' ');
+
+                    if (isTitlePixel) {
+                        char c = G_TITLE_BANNER[by][bx]; char str[2] = { c, '\0' };
+                        Color dimmedFire = GetFireColor(intensity / 3.5f);
+                        DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, (intensity > 0) ? dimmedFire : Color{ 55, 35, 40, 255 });
+                    }
+                    else if (intensity > 0) {
+                        Color fireColor = GetFireColor(intensity);
+                        char c = GetFireChar(intensity); char str[2] = { c, '\0' };
+                        DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, fireColor);
+                    }
+                }
+            }
+
+            int menuX = GetScreenWidth() / 2 - 100;
+            int menuY = GetScreenHeight() / 2 + 80;
+            const char* options[] = { "New Game", "Options", "Quit Game" };
+            Vector2 mousePos = GetMousePosition();
+
+            for (int i = 0; i < titleOptionCount; i++) {
+                int optY = menuY + i * 40;
+                Rectangle optRect = { (float)menuX - 20, (float)optY, 240, 35 };
+
+                if (CheckCollisionPointRec(mousePos, optRect)) {
+                    titleMenuSelection = i;
+                    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                        if (i == 0) {
+                            tavernCandidates = GenerateTavernCandidates(6);
+                            selectedCandidate = 0;
+                            currentState = STATE_TAVERN;
+                        }
+                        else if (i == 1) actionMessage = "Options coming soon!";
+                        else if (i == 2) keepRunning = false;
+                    }
+                }
+
+                Color col = (i == titleMenuSelection) ? YELLOW : WHITE;
+                if (i == titleMenuSelection) DrawText(">", menuX - 20, optY, 24, YELLOW);
+                DrawText(options[i], menuX, optY, 24, col);
+            }
+
+            EndDrawing();
+            continue;
+        }
+
+        // --- TAVERN / CHARACTER SELECTION STATE ---
+        if (currentState == STATE_TAVERN)
+        {
+            if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) {
+                if (selectedCandidate > 0) selectedCandidate--;
+            }
+            if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) {
+                if (selectedCandidate < (int)tavernCandidates.size() - 1) selectedCandidate++;
+            }
+            if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
+                if (selectedCandidate >= 3) selectedCandidate -= 3;
+            }
+            if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+                if (selectedCandidate + 3 < (int)tavernCandidates.size()) selectedCandidate += 3;
+            }
+            if (IsKeyPressed(KEY_R)) {
+                tavernCandidates = GenerateTavernCandidates(6);
+            }
+
+            // Keyboard direct selection (1 - 6)
+            for (int k = 0; k < 6; k++) {
+                if (IsKeyPressed(KEY_ONE + k)) selectedCandidate = k;
+            }
+
+            bool confirmSelection = IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
+
+            BeginDrawing();
+            ClearBackground(Color{ 18, 12, 14, 255 }); // Warm atmospheric dark tavern background
+
+            DrawText("THE RUSTY ANVIL TAVERN", GetScreenWidth() / 2 - MeasureText("THE RUSTY ANVIL TAVERN", 32) / 2, 30, 32, GOLD);
+            DrawText("Select a patron to descend into the dungeon...", GetScreenWidth() / 2 - MeasureText("Select a patron to descend into the dungeon...", 18) / 2, 70, 18, LIGHTGRAY);
+
+            Vector2 mousePos = GetMousePosition();
+            int cardW = 340; int cardH = 220;
+            int marginX = 25; int marginY = 20;
+            int startX = GetScreenWidth() / 2 - (cardW * 3 + marginX * 2) / 2;
+            int startY = 110;
+
+            for (int i = 0; i < (int)tavernCandidates.size(); i++) {
+                const auto& cand = tavernCandidates[i];
+                int col = i % 3; int row = i / 3;
+                int cx = startX + col * (cardW + marginX);
+                int cy = startY + row * (cardH + marginY);
+
+                Rectangle cardRect = { (float)cx, (float)cy, (float)cardW, (float)cardH };
+                bool isHovered = CheckCollisionPointRec(mousePos, cardRect);
+
+                if (isHovered) {
+                    selectedCandidate = i;
+                    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) confirmSelection = true;
+                }
+
+                bool isSelected = (i == selectedCandidate);
+                Color bgCol = isSelected ? Color{ 45, 32, 28, 255 } : Color{ 28, 22, 24, 255 };
+                Color borderCol = isSelected ? GOLD : GRAY;
+
+                DrawRectangle(cx, cy, cardW, cardH, bgCol);
+                DrawRectangleLinesEx(cardRect, isSelected ? 3.0f : 1.0f, borderCol);
+
+                DrawText(TextFormat("%d. %s", i + 1, cand.name.c_str()), cx + 12, cy + 12, 18, isSelected ? YELLOW : WHITE);
+                DrawText(TextFormat("%s  |  Birthsign: %s", cand.className.c_str(), cand.birthsign.c_str()), cx + 12, cy + 36, 14, ORANGE);
+
+                DrawText(TextFormat("HP: %d  SP: %d  MP: %d", cand.maxHp, cand.maxStamina, cand.maxMana), cx + 12, cy + 58, 14, GREEN);
+                DrawText(TextFormat("STR:%d END:%d AGI:%d INT:%d", cand.str, cand.end, cand.agi, cand.intel), cx + 12, cy + 78, 13, LIGHTGRAY);
+                DrawText(TextFormat("WIL:%d PER:%d LCK:%d", cand.wil, cand.per, cand.lck), cx + 12, cy + 96, 13, LIGHTGRAY);
+
+                // Display Starting Equipment
+                std::string mainHand = "Bare Fists";
+                if (!cand.equippedSlots[SLOT_MAIN_HAND].IsEmpty()) {
+                    mainHand = GetGroundItemName(cand.equippedSlots[SLOT_MAIN_HAND]);
+                }
+                DrawText(TextFormat("Gear: %s", mainHand.c_str()), cx + 12, cy + 118, 13, SKYBLUE);
+
+                // Flavor Quote
+                DrawText(TextFormat("\"%s\"", cand.flavorQuote.c_str()), cx + 12, cy + 145, 12, GRAY);
+            }
+
+            // Tavern Controls Bar
+            std::string hint = "[WASD / Arrows / 1-6] Select  |  [ENTER / Click] Begin Quest  |  [R] Reroll Patrons";
+            DrawText(hint.c_str(), GetScreenWidth() / 2 - MeasureText(hint.c_str(), 18) / 2, GetScreenHeight() - 50, 18, GOLD);
+
+            EndDrawing();
+
+            if (confirmSelection) {
+                ApplyProfileToPlayer(tavernCandidates[selectedCandidate], player);
+
+                // Clear & Generate Level 1
+                dungeon.clear();
+                currentFloor = 0;
+                groundItems.clear();
+                GenerateFloor(map, explored, rooms, player, enemies);
+
+                LevelState firstFloor;
+                for (int x = 0; x < mapWidth; x++) {
+                    for (int y = 0; y < mapHeight; y++) {
+                        firstFloor.savedMap[x][y] = map[x][y];
+                        firstFloor.savedExplored[x][y] = explored[x][y];
+                    }
+                }
+                firstFloor.savedEnemies = enemies;
+                firstFloor.savedItems = groundItems;
+                dungeon.push_back(firstFloor);
+
+                camera.target = { (float)player.x * tileSize + (tileSize / 2.0f), (float)player.y * tileSize + (tileSize / 2.0f) };
+                actionMessage = "You descend into the catacombs as " + player.name + " the " + player.className + ".";
+                currentState = STATE_GAMEPLAY;
+            }
+            continue;
+        }
+
+        // --- GAMEPLAY INPUT & UPDATE ---
         camera.offset = { GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f };
-        int nextX = player.x;
-        int nextY = player.y;
+        int nextX = player.x; int nextY = player.y;
 
-        if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) nextX++;
-        if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) nextX--;
-        if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) nextY--;
-        if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) nextY++;
+        if (IsKeyPressed(KEY_ESCAPE)) {
+            showPauseMenu = !showPauseMenu;
+            if (showPauseMenu) showInventory = false;
+        }
 
-        // NEW: Allow the player to walk on floors AND stairs
-        // NEW: Allow walking anywhere if fog is off (noclip!), otherwise respect walls
-// If the player is trying to move...
+        if (IsKeyPressed(KEY_I) && !showPauseMenu) {
+            showInventory = !showInventory;
+        }
+
+        if (showPauseMenu) {
+            const int pauseOptionCount = 6;
+            if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
+                pauseMenuSelection--;
+                if (pauseMenuSelection < 0) pauseMenuSelection = pauseOptionCount - 1;
+            }
+            if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+                pauseMenuSelection++;
+                if (pauseMenuSelection >= pauseOptionCount) pauseMenuSelection = 0;
+            }
+
+            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_E)) {
+                if (pauseMenuSelection == 0) showPauseMenu = false;
+                else if (pauseMenuSelection == 1) { actionMessage = "Save feature not implemented yet."; showPauseMenu = false; }
+                else if (pauseMenuSelection == 2) { actionMessage = "Load feature not implemented yet."; showPauseMenu = false; }
+                else if (pauseMenuSelection == 3) { actionMessage = "Options feature not implemented yet."; showPauseMenu = false; }
+                else if (pauseMenuSelection == 4) { currentState = STATE_TITLE; showPauseMenu = false; }
+                else if (pauseMenuSelection == 5) keepRunning = false;
+            }
+        }
+        else if (!showInventory) {
+            if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) nextX++;
+            if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) nextX--;
+            if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) nextY--;
+            if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) nextY++;
+
+            if (IsKeyPressed(KEY_G)) {
+                for (auto it = groundItems.begin(); it != groundItems.end(); ++it) {
+                    if (it->x == player.x && it->y == player.y) {
+                        player.inventory.push_back(it->item);
+                        actionMessage = "Picked up item.";
+                        groundItems.erase(it);
+                        break;
+                    }
+                }
+            }
+        }
+        else {
+            if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
+                if (selectedItemIndex > 0) selectedItemIndex--;
+            }
+            if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+                if (!player.inventory.empty() && selectedItemIndex < (int)player.inventory.size() - 1) {
+                    selectedItemIndex++;
+                }
+            }
+            if (IsKeyPressed(KEY_D)) {
+                if (!player.inventory.empty() && selectedItemIndex < (int)player.inventory.size()) {
+                    GroundItem dropped;
+                    dropped.x = player.x; dropped.y = player.y;
+                    dropped.item = player.inventory[selectedItemIndex];
+                    groundItems.push_back(dropped);
+                    player.inventory.erase(player.inventory.begin() + selectedItemIndex);
+                    if (selectedItemIndex >= (int)player.inventory.size() && selectedItemIndex > 0) selectedItemIndex--;
+                    actionMessage = "Dropped item.";
+                }
+            }
+            if (IsKeyPressed(KEY_E)) {
+                if (!player.inventory.empty() && selectedItemIndex < (int)player.inventory.size()) {
+                    Item itemToEquip = player.inventory[selectedItemIndex];
+                    EquipSlot targetSlot = SLOT_NONE;
+
+                    if (itemToEquip.weaponTypeId >= 0) targetSlot = SLOT_MAIN_HAND;
+                    else if (!itemToEquip.archetypeId.empty()) {
+                        for (const auto& arch : G_ITEM_ARCHETYPES) {
+                            if (arch.id == itemToEquip.archetypeId) { targetSlot = arch.slot; break; }
+                        }
+                    }
+
+                    if (targetSlot != SLOT_NONE && targetSlot < SLOT_SINGLE_COUNT) {
+                        Item oldItem = player.equippedSlots[targetSlot];
+                        player.equippedSlots[targetSlot] = itemToEquip;
+                        player.inventory.erase(player.inventory.begin() + selectedItemIndex);
+                        if (!oldItem.IsEmpty()) player.inventory.push_back(oldItem);
+                        if (selectedItemIndex >= (int)player.inventory.size() && selectedItemIndex > 0) selectedItemIndex--;
+                        actionMessage = "Equipped item.";
+                    }
+                }
+            }
+            if (IsKeyPressed(KEY_U)) {
+                for (int s = 0; s < SLOT_SINGLE_COUNT; s++) {
+                    if (!player.equippedSlots[s].IsEmpty()) {
+                        player.inventory.push_back(player.equippedSlots[s]);
+                        player.equippedSlots[s] = Item();
+                        actionMessage = "Unequipped item.";
+                        break;
+                    }
+                }
+            }
+        }
+
         if (nextX != player.x || nextY != player.y) {
             bool enemyBlocking = false;
-
-            // 1. Check if a living enemy is in the way, and attack it if so
             for (auto it = enemies.begin(); it != enemies.end(); ++it) {
                 if (it->x == nextX && it->y == nextY && !it->isDead) {
                     enemyBlocking = true;
@@ -189,48 +521,69 @@ int main()
                 }
             }
 
-            // 2. Move if not blocked (Noclip bypasses everything!)
             if (!enableFog || (!enemyBlocking && (map[nextX][nextY] == TILE_FLOOR || map[nextX][nextY] == TILE_STAIR_UP || map[nextX][nextY] == TILE_STAIR_DOWN))) {
                 player.x = nextX;
                 player.y = nextY;
-                if (!enemyBlocking) actionMessage = ""; // Clear message on successful step
+                if (!enemyBlocking) actionMessage = "";
             }
         }
 
-        // NEW: The Multi-Interaction Mechanic (Left Click)
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        if (!showPauseMenu && !showInventory && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
-            int clickX = (int)(mouseWorldPos.x / tileSize);
-            int clickY = (int)(mouseWorldPos.y / tileSize);
-
+            int clickX = (int)floorf(mouseWorldPos.x / (float)tileSize);
+            int clickY = (int)floorf(mouseWorldPos.y / (float)tileSize);
             bool foundSomething = false;
 
-            // Check if we clicked an enemy we can actually see
             for (const auto& enemy : enemies) {
                 if (enemy.x == clickX && enemy.y == clickY && (!enableFog || explored[clickX][clickY])) {
-                    switch (currentMode) {
-                    case MODE_LOOK:
-                    {
-                        float hpPercent = (float)enemy.hp / enemy.maxHp;
-                        if (hpPercent >= 1.0f) actionMessage = "It looks completely unharmed.";
-                        else if (hpPercent >= 0.5f) actionMessage = "It has some cuts and bruises.";
-                        else if (hpPercent >= 0.2f) actionMessage = "It looks severely wounded!";
-                        else actionMessage = "It is clinging to life...";
+                    std::string enemyName = GetEnemyName(enemy);
+                    if (enemy.isDead) {
+                        switch (currentMode) {
+                        case MODE_LOOK:  actionMessage = "The lifeless corpse of a " + enemyName + " lies here."; break;
+                        case MODE_SPEAK: actionMessage = "You speak to the corpse, but it remains silent."; break;
+                        case MODE_GRAB:  actionMessage = "You pull on the heavy corpse, but cannot carry it."; break;
+                        case MODE_STEAL: actionMessage = "You search the body, but find nothing of value."; break;
+                        }
                     }
-                    break;
-                    case MODE_SPEAK: actionMessage = "The goblin shrieks at you!"; break;
-                    case MODE_GRAB:  actionMessage = "You try to grab it, but it snaps at your fingers!"; break;
-                    case MODE_STEAL: actionMessage = "It has nothing worth stealing."; break;
+                    else {
+                        switch (currentMode) {
+                        case MODE_LOOK: {
+                            float hpPercent = (float)enemy.hp / enemy.maxHp;
+                            if (hpPercent >= 1.0f) actionMessage = "The " + enemyName + " looks completely unharmed.";
+                            else if (hpPercent >= 0.5f) actionMessage = "The " + enemyName + " has some cuts and bruises.";
+                            else if (hpPercent >= 0.2f) actionMessage = "The " + enemyName + " looks severely wounded!";
+                            else actionMessage = "The " + enemyName + " is clinging to life...";
+                            break;
+                        }
+                        case MODE_SPEAK: actionMessage = "The " + enemyName + " growls hostility at you!"; break;
+                        case MODE_GRAB:  actionMessage = "The " + enemyName + " snaps at your hand as you reach out!"; break;
+                        case MODE_STEAL: actionMessage = "You reach for its pockets, but it swats your hand away!"; break;
+                        }
                     }
                     foundSomething = true;
                     break;
                 }
             }
 
-            // Easter egg for clicking yourself
+            if (!foundSomething) {
+                for (const auto& item : groundItems) {
+                    if (item.x == clickX && item.y == clickY && (!enableFog || explored[clickX][clickY])) {
+                        std::string itemName = GetGroundItemName(item.item);
+                        switch (currentMode) {
+                        case MODE_LOOK:  actionMessage = "You see a " + itemName + " lying on the ground."; break;
+                        case MODE_SPEAK: actionMessage = "You talk to the " + itemName + ". It offers no reply."; break;
+                        case MODE_GRAB:  actionMessage = "Press 'G' while standing over it to pick up the " + itemName + "."; break;
+                        case MODE_STEAL: actionMessage = "It's on the floor—taking it is just picking it up."; break;
+                        }
+                        foundSomething = true;
+                        break;
+                    }
+                }
+            }
+
             if (!foundSomething && clickX == player.x && clickY == player.y) {
                 switch (currentMode) {
-                case MODE_LOOK:  actionMessage = "That's you. You're doing great."; break;
+                case MODE_LOOK:  actionMessage = "That's you (" + player.name + "). You're doing great."; break;
                 case MODE_SPEAK: actionMessage = "Talking to yourself again?"; break;
                 case MODE_GRAB:  actionMessage = "You give yourself a comforting hug."; break;
                 case MODE_STEAL: actionMessage = "What have I got in my pocket?"; break;
@@ -238,48 +591,64 @@ int main()
                 foundSomething = true;
             }
 
-            // Clicking empty space
-            if (!foundSomething) {
-                switch (currentMode) {
-                case MODE_LOOK:  actionMessage = "You see nothing of interest."; break;
-                case MODE_SPEAK: actionMessage = "Hello, empty room."; break;
-                case MODE_GRAB:  actionMessage = "You grasp at empty air."; break;
-                case MODE_STEAL: actionMessage = "There's nothing to steal here."; break;
+            if (!foundSomething && clickX >= 0 && clickX < mapWidth && clickY >= 0 && clickY < mapHeight) {
+                if (!enableFog || explored[clickX][clickY]) {
+                    TileType tile = map[clickX][clickY];
+                    switch (tile) {
+                    case TILE_WALL:
+                        switch (currentMode) {
+                        case MODE_LOOK:  actionMessage = "A solid, damp stone wall."; break;
+                        case MODE_SPEAK: actionMessage = "You talk to the wall. Nothing happens."; break;
+                        case MODE_GRAB:  actionMessage = "You feel the cold, rough surface of the stone."; break;
+                        case MODE_STEAL: actionMessage = "You can't pocket a whole dungeon wall."; break;
+                        }
+                        break;
+                    case TILE_STAIR_DOWN:
+                        switch (currentMode) {
+                        case MODE_LOOK:  actionMessage = "A set of dark stairs leading deeper down."; break;
+                        case MODE_SPEAK: actionMessage = "Your voice echoes down the stairwell."; break;
+                        case MODE_GRAB:  actionMessage = "You grip the dusty stone steps."; break;
+                        case MODE_STEAL: actionMessage = "You can't steal the staircase."; break;
+                        }
+                        break;
+                    case TILE_STAIR_UP:
+                        switch (currentMode) {
+                        case MODE_LOOK:  actionMessage = "Stairs leading back toward the upper floors."; break;
+                        case MODE_SPEAK: actionMessage = "Your voice echoes upward."; break;
+                        case MODE_GRAB:  actionMessage = "You grip the stair steps."; break;
+                        case MODE_STEAL: actionMessage = "You can't steal the staircase."; break;
+                        }
+                        break;
+                    case TILE_FLOOR:
+                        switch (currentMode) {
+                        case MODE_LOOK:  actionMessage = "Bare, dusty dungeon floor."; break;
+                        case MODE_SPEAK: actionMessage = "You talk to the floor tiles. Silence."; break;
+                        case MODE_GRAB:  actionMessage = "You touch the cold floor."; break;
+                        case MODE_STEAL: actionMessage = "There is nothing on this tile to steal."; break;
+                        }
+                        break;
+                    }
                 }
             }
         }
 
-        // NEW: Press 'F' to toggle the Fog of War for testing
         if (IsKeyPressed(KEY_F)) enableFog = !enableFog;
-
-        // NEW: Toggle Fullscreen with F11
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
 
-        // NEW: Cycle interaction modes with the Mouse Wheel
         float wheelMove = GetMouseWheelMove();
-        if (wheelMove > 0) {
-            currentMode = (ActionMode)((currentMode + 1) % 4); // Scroll Up
-        }
-        else if (wheelMove < 0) {
-            currentMode = (ActionMode)((currentMode + 3) % 4); // Scroll Down (+3 safely loops backward in a 4-item list!)
-        }
+        if (wheelMove > 0) currentMode = (ActionMode)((currentMode + 1) % 4);
+        else if (wheelMove < 0) currentMode = (ActionMode)((currentMode + 3) % 4);
 
-        // NEW: Update the camera to follow the player's pixel position
-        // 1. Figure out exactly where the camera SHOULD be
         float targetX = (float)player.x * tileSize + (tileSize / 2.0f);
         float targetY = (float)player.y * tileSize + (tileSize / 2.0f);
-
-        // 2. Glide the camera 10% of the way toward that target every second (Lerping!)
         camera.target.x += (targetX - camera.target.x) * 10.0f * GetFrameTime();
         camera.target.y += (targetY - camera.target.y) * 10.0f * GetFrameTime();
 
-        // NEW: Ascending and Descending logic
         if (IsKeyPressed(KEY_SPACE)) {
             bool wentDown = (map[player.x][player.y] == TILE_STAIR_DOWN);
             bool wentUp = (map[player.x][player.y] == TILE_STAIR_UP && currentFloor > 0);
 
             if (wentDown || wentUp) {
-                // 1. Save the current floor before we leave it
                 for (int x = 0; x < mapWidth; x++) {
                     for (int y = 0; y < mapHeight; y++) {
                         dungeon[currentFloor].savedMap[x][y] = map[x][y];
@@ -287,22 +656,18 @@ int main()
                     }
                 }
                 dungeon[currentFloor].savedEnemies = enemies;
+                dungeon[currentFloor].savedItems = groundItems;
 
-                // 2. Change Floor
                 if (wentDown) currentFloor++;
                 if (wentUp) currentFloor--;
 
-                // 3. Are we generating a NEW floor, or loading an OLD one?
-                if (currentFloor >= dungeon.size()) {
-                    // --- GENERATE NEW FLOOR ---
+                if (currentFloor >= (int)dungeon.size()) {
                     GenerateFloor(map, explored, rooms, player, enemies);
-
-                    // Push empty state to reserve space in memory
+                    groundItems.clear();
                     LevelState newFloor;
                     dungeon.push_back(newFloor);
                 }
                 else {
-                    // --- LOAD EXISTING FLOOR ---
                     for (int x = 0; x < mapWidth; x++) {
                         for (int y = 0; y < mapHeight; y++) {
                             map[x][y] = dungeon[currentFloor].savedMap[x][y];
@@ -310,8 +675,8 @@ int main()
                         }
                     }
                     enemies = dungeon[currentFloor].savedEnemies;
+                    groundItems = dungeon[currentFloor].savedItems;
 
-                    // Find correct stair to spawn on
                     TileType targetStair = wentDown ? TILE_STAIR_UP : TILE_STAIR_DOWN;
                     for (int x = 0; x < mapWidth; x++) {
                         for (int y = 0; y < mapHeight; y++) {
@@ -322,144 +687,170 @@ int main()
                         }
                     }
                 }
-                continue; // Skip the draw call this frame to prevent glitches
+                continue;
             }
         }
 
-        // NEW: Reveal a 5x5 grid around the player's current position
         for (int i = -2; i <= 2; i++) {
             for (int j = -2; j <= 2; j++) {
                 int viewX = player.x + i;
                 int viewY = player.y + j;
-
-                // Make sure we don't try to reveal tiles outside the array bounds
                 if (viewX >= 0 && viewX < mapWidth && viewY >= 0 && viewY < mapHeight) {
                     explored[viewX][viewY] = true;
                 }
             }
         }
 
-        // --- DRAW ---
+        // --- DRAW GAMEPLAY ---
         BeginDrawing();
         ClearBackground(BLACK);
-        // NEW: Activate the camera view
         BeginMode2D(camera);
 
-        // Expand the drawing bounds by 30 tiles in every direction to hide the void!
         for (int x = -30; x < mapWidth + 30; x++) {
             for (int y = -30; y < mapHeight + 30; y++) {
-
-                // If the tile is outside our real map array, draw a fake wall and skip the rest!
                 if (x < 0 || x >= mapWidth || y < 0 || y >= mapHeight) {
-                    // 1. Find the closest actual border tile on our real map
                     int edgeX = std::max(0, std::min(x, mapWidth - 1));
                     int edgeY = std::max(0, std::min(y, mapHeight - 1));
-
-                    // 2. If the border is explored, we pretend this fake wall is explored too
-                    // (But only up to 2 tiles deep, to perfectly mimic our 5x5 vision radius!)
                     bool fakeExplored = explored[edgeX][edgeY] && (std::abs(x - edgeX) <= 2) && (std::abs(y - edgeY) <= 2);
-
-                    // 3. Draw it only if it passes the fog check
                     if (fakeExplored || !enableFog) {
                         DrawText("#", x * tileSize + 4, y * tileSize + 2, tileSize, DARKGRAY);
                     }
                     continue;
                 }
-                // NEW: Only draw the tile if the player has explored it
-                // NEW: Draw if explored, OR if the fog is toggled off
                 if (explored[x][y] || !enableFog) {
-                    if (map[x][y] == TILE_WALL) {
-                        DrawText("#", x * tileSize + 4, y * tileSize + 2, tileSize, DARKGRAY);
-                    }
-                    else if (map[x][y] == TILE_FLOOR) {
-                        DrawText(".", x * tileSize + 8, y * tileSize + 2, tileSize, ColorAlpha(DARKGRAY, 0.5f));
-                    }
-                    else if (map[x][y] == TILE_STAIR_UP) {
-                        DrawText("<", x * tileSize + 4, y * tileSize + 2, tileSize, YELLOW);
-                    }
-                    else if (map[x][y] == TILE_STAIR_DOWN) {
-                        DrawText(">", x * tileSize + 4, y * tileSize + 2, tileSize, YELLOW);
-                    }
+                    if (map[x][y] == TILE_WALL) DrawText("#", x * tileSize + 4, y * tileSize + 2, tileSize, DARKGRAY);
+                    else if (map[x][y] == TILE_FLOOR) DrawText(".", x * tileSize + 8, y * tileSize + 2, tileSize, ColorAlpha(DARKGRAY, 0.5f));
+                    else if (map[x][y] == TILE_STAIR_UP) DrawText("<", x * tileSize + 4, y * tileSize + 2, tileSize, YELLOW);
+                    else if (map[x][y] == TILE_STAIR_DOWN) DrawText(">", x * tileSize + 4, y * tileSize + 2, tileSize, YELLOW);
                 }
             }
         }
 
-        // 0. Draw the enemies (only if visible or fog is disabled)
+        for (const auto& item : groundItems) {
+            if (!enableFog || explored[item.x][item.y]) {
+                DrawText("?", item.x * tileSize + 6, item.y * tileSize + 2, tileSize, GOLD);
+            }
+        }
+
         for (const auto& enemy : enemies) {
             if (!enableFog || explored[enemy.x][enemy.y]) {
                 const char* enemyChar = TextFormat("%c", enemy.symbol);
-
-                Color drawColor = enemy.color;
-                float rotation = 0.0f;
-                if (enemy.isDead) {
-                    drawColor = GRAY;
-                    rotation = 90.0f;
-                }
-
+                Color drawColor = enemy.isDead ? GRAY : enemy.color;
+                float rotation = enemy.isDead ? 90.0f : 0.0f;
                 Vector2 textSize = MeasureTextEx(GetFontDefault(), enemyChar, (float)tileSize, 1.0f);
                 Vector2 origin = { textSize.x / 2.0f, textSize.y / 2.0f };
                 Vector2 position = { enemy.x * tileSize + tileSize / 2.0f, enemy.y * tileSize + tileSize / 2.0f };
-
                 DrawTextPro(GetFontDefault(), enemyChar, position, origin, rotation, (float)tileSize, 1.0f, drawColor);
             }
         }
 
-        // 1. Draw the player in the world
-        DrawText("@", player.x* tileSize + 4, player.y* tileSize + 2, tileSize, GREEN);
-
-        // 2. Turn OFF the camera view (everything after this is glued to the screen!)
+        DrawText("@", player.x * tileSize + 4, player.y * tileSize + 2, tileSize, GREEN);
         EndMode2D();
 
-        // 3. Draw the HUD
-// --- HUD / UI ---
-        int hudX = GetScreenWidth() - 220;
+        // HUD / UI
+        int hudX = GetScreenWidth() - 250;
         int hudY = 20;
+        DrawRectangle(hudX - 10, hudY, 250, 160, BLACK);
 
-        // Made the background taller (140 instead of 110) to fit the icon
-        DrawRectangle(hudX - 10, hudY, 220, 140, BLACK);
+        DrawText(TextFormat("%s (%s)", player.name.c_str(), player.className.c_str()), hudX, hudY + 5, 16, GOLD);
 
-        // NEW: Figure out what color and symbol to draw based on the current mode
-        Color modeColor = WHITE;
-        const char* modeSymbol = "";
+        Color modeColor = WHITE; const char* modeSymbol = "";
         switch (currentMode) {
         case MODE_LOOK:  modeColor = SKYBLUE; modeSymbol = "?"; break;
         case MODE_SPEAK: modeColor = GOLD;    modeSymbol = "\""; break;
-        case MODE_GRAB:  modeColor = GREEN;   modeSymbol = "m"; break; // Looks like a hand
+        case MODE_GRAB:  modeColor = GREEN;   modeSymbol = "m"; break;
         case MODE_STEAL: modeColor = PURPLE;  modeSymbol = "$"; break;
         }
 
-        // NEW: Draw the Icon Box and the Mode Text
-        DrawRectangle(hudX, hudY + 10, 24, 24, modeColor);
-        DrawText(modeSymbol, hudX + 7, hudY + 14, 20, BLACK);
-        DrawText(TextFormat("MODE: %s", modeNames[currentMode]), hudX + 35, hudY + 14, 18, modeColor);
+        DrawRectangle(hudX, hudY + 30, 20, 20, modeColor);
+        DrawText(modeSymbol, hudX + 5, hudY + 32, 16, BLACK);
+        DrawText(TextFormat("MODE: %s", modeNames[currentMode]), hudX + 30, hudY + 32, 16, modeColor);
 
-        // Health Bar (Red) - Shifted down to +40
-        DrawRectangle(hudX, hudY + 40, 200, 20, DARKGRAY);
-        DrawRectangle(hudX, hudY + 40, (player.hp * 200) / player.maxHp, 20, RED);
-        DrawText(TextFormat("HP: %i/%i", player.hp, player.maxHp), hudX + 5, hudY + 42, 16, WHITE);
+        DrawRectangle(hudX, hudY + 60, 200, 18, DARKGRAY);
+        DrawRectangle(hudX, hudY + 60, (player.hp * 200) / std::max(1, player.maxHp), 18, RED);
+        DrawText(TextFormat("HP: %i/%i", player.hp, player.maxHp), hudX + 5, hudY + 61, 14, WHITE);
 
-        // Stamina Bar (Green) - Shifted down to +70
-        DrawRectangle(hudX, hudY + 70, 200, 20, DARKGRAY);
-        DrawRectangle(hudX, hudY + 70, (player.stamina * 200) / player.maxStamina, 20, GREEN);
-        DrawText(TextFormat("SP: %i/%i", player.stamina, player.maxStamina), hudX + 5, hudY + 72, 16, WHITE);
+        DrawRectangle(hudX, hudY + 85, 200, 18, DARKGRAY);
+        DrawRectangle(hudX, hudY + 85, (player.stamina * 200) / std::max(1, player.maxStamina), 18, GREEN);
+        DrawText(TextFormat("SP: %i/%i", player.stamina, player.maxStamina), hudX + 5, hudY + 86, 14, WHITE);
 
-        // Mana Bar (Blue) - Shifted down to +100
-        DrawRectangle(hudX, hudY + 100, 200, 20, DARKGRAY);
-        DrawRectangle(hudX, hudY + 100, (player.mana * 200) / player.maxMana, 20, BLUE);
-        DrawText(TextFormat("MP: %i/%i", player.mana, player.maxMana), hudX + 5, hudY + 102, 16, WHITE);
+        DrawRectangle(hudX, hudY + 110, 200, 18, DARKGRAY);
+        DrawRectangle(hudX, hudY + 110, (player.mana * 200) / std::max(1, player.maxMana), 18, BLUE);
+        DrawText(TextFormat("MP: %i/%i", player.mana, player.maxMana), hudX + 5, hudY + 111, 14, WHITE);
 
-        // Draw the Action Message at the bottom center of the screen
-        if (actionMessage != "") {
+        if (!actionMessage.empty()) {
             int msgWidth = MeasureText(actionMessage.c_str(), 20);
-            DrawRectangle(GetScreenWidth() / 2 - msgWidth / 2 - 10, GetScreenHeight() - 50, msgWidth + 20, 30, Fade(BLACK, 0.8f));
-            DrawText(actionMessage.c_str(), GetScreenWidth() / 2 - msgWidth / 2, GetScreenHeight() - 45, 20, WHITE);
+            DrawRectangle((GetScreenWidth() - msgWidth) / 2 - 10, GetScreenHeight() - 45, msgWidth + 20, 30, Fade(BLACK, 0.8f));
+            DrawText(actionMessage.c_str(), (GetScreenWidth() - msgWidth) / 2, GetScreenHeight() - 40, 20, RAYWHITE);
         }
 
-        // 4. Finish the frame
-        EndDrawing();
-        // NEW: Deactivate the camera view before drawing the UI
-        EndMode2D();
+        if (showInventory) {
+            int invX = GetScreenWidth() / 2 - 250;
+            int invY = GetScreenHeight() / 2 - 200;
+            DrawRectangle(invX, invY, 500, 400, Fade(BLACK, 0.9f));
+            DrawRectangleLines(invX, invY, 500, 400, GOLD);
+            DrawText("INVENTORY (Press 'I' to close)", invX + 20, invY + 15, 20, GOLD);
+            DrawText("E: Equip | D: Drop | U: Unequip", invX + 20, invY + 370, 16, GRAY);
 
+            DrawText("EQUIPPED:", invX + 270, invY + 60, 18, GOLD);
+            int slotDrawY = invY + 90;
+            for (int s = 0; s < SLOT_SINGLE_COUNT; s++) {
+                if (!player.equippedSlots[s].IsEmpty()) {
+                    std::string eqName = GetGroundItemName(player.equippedSlots[s]);
+                    DrawText(eqName.c_str(), invX + 270, slotDrawY, 16, WHITE);
+                    slotDrawY += 22;
+                }
+            }
+
+            if (player.inventory.empty()) {
+                DrawText("Your inventory is empty.", invX + 20, invY + 60, 18, LIGHTGRAY);
+            }
+            else {
+                for (size_t i = 0; i < player.inventory.size(); i++) {
+                    std::string itemName = GetGroundItemName(player.inventory[i]);
+                    Color itemColor = WHITE;
+                    if ((int)i == selectedItemIndex) {
+                        itemColor = YELLOW;
+                        DrawText(">", invX + 15, invY + 60 + (int)i * 25, 18, YELLOW);
+                    }
+                    std::string line = itemName + " x" + std::to_string(player.inventory[i].quantity);
+                    DrawText(line.c_str(), invX + 35, invY + 60 + (int)i * 25, 18, itemColor);
+                }
+            }
+        }
+
+        if (showPauseMenu) {
+            int menuWidth = 400; int menuHeight = 320;
+            int menuX = GetScreenWidth() / 2 - menuWidth / 2;
+            int menuY = GetScreenHeight() / 2 - menuHeight / 2;
+            DrawRectangle(menuX, menuY, menuWidth, menuHeight, Fade(BLACK, 0.95f));
+            DrawRectangleLines(menuX, menuY, menuWidth, menuHeight, GOLD);
+            DrawText("PAUSED", menuX + (menuWidth - MeasureText("PAUSED", 24)) / 2, menuY + 20, 24, GOLD);
+
+            const char* pauseOptions[] = { "Resume", "Save Game", "Load Game", "Options", "Return to Title", "Quit Game" };
+            Vector2 mousePos = GetMousePosition();
+            for (int i = 0; i < 6; i++) {
+                int optY = menuY + 75 + i * 35;
+                Rectangle optRect = { (float)menuX + 50, (float)optY - 2, (float)menuWidth - 100, 30 };
+                if (CheckCollisionPointRec(mousePos, optRect)) {
+                    pauseMenuSelection = i;
+                    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                        if (i == 0) showPauseMenu = false;
+                        else if (i == 1) { actionMessage = "Save feature not implemented yet."; showPauseMenu = false; }
+                        else if (i == 2) { actionMessage = "Load feature not implemented yet."; showPauseMenu = false; }
+                        else if (i == 3) { actionMessage = "Options feature not implemented yet."; showPauseMenu = false; }
+                        else if (i == 4) { currentState = STATE_TITLE; showPauseMenu = false; }
+                        else if (i == 5) keepRunning = false;
+                    }
+                }
+
+                Color optColor = (i == pauseMenuSelection) ? YELLOW : WHITE;
+                if (i == pauseMenuSelection) DrawText(">", menuX + 60, optY, 20, YELLOW);
+                DrawText(pauseOptions[i], menuX + 85, optY, 20, optColor);
+            }
+        }
+
+        EndDrawing();
     }
 
     CloseWindow();

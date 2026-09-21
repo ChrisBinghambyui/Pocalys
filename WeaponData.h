@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 enum WeaponCategory {
     WEAPON_LIGHT,
@@ -25,3 +26,5 @@ struct WeaponType
     bool reach;
     bool thrown;
 };
+
+extern std::vector<WeaponType> G_WEAPON_TYPES;
