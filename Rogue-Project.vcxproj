@@ -125,13 +125,16 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="CharacterGenerator.cpp" />
+    <ClCompile Include="CharacterSheetState.cpp" />
     <ClCompile Include="Combat.cpp" />
     <ClCompile Include="Durability.cpp" />
     <ClCompile Include="EnemyData.cpp" />
     <ClCompile Include="EnemyFactory.cpp" />
+    <ClCompile Include="FeatData.cpp" />
     <ClCompile Include="ItemData.cpp" />
     <ClCompile Include="MaterialData.cpp" />
     <ClCompile Include="Rogue-Project.cpp" />
+    <ClCompile Include="SkillData.cpp" />
     <ClCompile Include="WeaponData.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -139,16 +142,19 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CharacterGenerator.h" />
+    <ClInclude Include="CharacterSheetState.h" />
     <ClInclude Include="Combat.h" />
     <ClInclude Include="DungeonData.h" />
     <ClInclude Include="Durability.h" />
     <ClInclude Include="Enemy.h" />
     <ClInclude Include="EnemyData.h" />
     <ClInclude Include="EnemyFactory.h" />
+    <ClInclude Include="FeatData.h" />
     <ClInclude Include="Item.h" />
     <ClInclude Include="ItemData.h" />
     <ClInclude Include="MaterialData.h" />
     <ClInclude Include="Player.h" />
+    <ClInclude Include="SkillData.h" />
     <ClInclude Include="WeaponData.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -1,3 +1,4 @@
+#pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
 #include <raylib.h>
 #include <vector>
 #include <algorithm>
@@ -12,20 +13,64 @@
 #include "CharacterGenerator.h"
 #include <string>
 
+const int MAP_WIDTH = 80;
+const int MAP_HEIGHT = 45;
+const int MAX_ROOMS = 15;
+
 enum GameState {
     STATE_TITLE,
     STATE_TAVERN,
     STATE_GAMEPLAY
 };
 
-const std::vector<std::string> G_TITLE_BANNER = {
-    " ____   ____   ____   _     _    __   ______ ",
-    "|  _ \\ / __ \\ / ___| / \\   | |   \\ \\ / / ___|",
-    "| |_) | |  | | |    / _ \\  | |    \\ V /\\___ \\",
-    "|  __/| |__| | |___/ ___ \\ | |___  | |  ___) |",
-    "|_|    \\____/ \\____/_/   \\_\\|_____| |_| |____/ "
+enum TitleTheme {
+    THEME_FIRE,
+    THEME_RAIN,
+    THEME_ICE,
+    THEME_ELECTRIC,
+    THEME_COUNT
 };
 
+const std::vector<std::string> G_TITLE_BANNER = {
+    " ____    ____    ____     _     _    __   __ _____  ",
+    "|  _ \\  / __ \\  / ___|   / \\   | |   \\ \\ / // ___| ",
+    "| |_) || |  | || |      / _ \\  | |    \\ V / \\___ \\ ",
+    "|  __/ | |__| || |___  / ___ \\ | |___  | |   ___) |",
+    "|_|     \\____/  \\____|/_/   \\_\\|_____| |_|  |____/  "
+};
+
+// --- FLOOR WIPE TRANSITION ---
+void PerformFloorTransition(bool isDescending) {
+    const float transitionDuration = 0.25f;
+    float timer = 0.0f;
+    int screenW = GetScreenWidth();
+    int screenH = GetScreenHeight();
+
+    while (timer < transitionDuration && !WindowShouldClose()) {
+        float dt = GetFrameTime();
+        timer += dt;
+        float progress = timer / transitionDuration;
+        if (progress > 1.0f) progress = 1.0f;
+
+        BeginDrawing();
+
+        if (isDescending) {
+            int wipeHeight = (int)(screenH * progress);
+            DrawRectangle(0, 0, screenW, wipeHeight, BLACK);
+            DrawRectangle(0, wipeHeight - 4, screenW, 4, GOLD);
+        }
+        else {
+            int wipeHeight = (int)(screenH * progress);
+            int startY = screenH - wipeHeight;
+            DrawRectangle(0, startY, screenW, wipeHeight, BLACK);
+            DrawRectangle(0, startY, screenW, 4, GOLD);
+        }
+
+        EndDrawing();
+    }
+}
+
+// --- FIRE ANIMATION ---
 Color GetFireColor(int intensity) {
     if (intensity <= 0) return BLACK;
     if (intensity < 7)  return Color{ 70, 10, 15, 255 };
@@ -63,6 +108,111 @@ void UpdateFire(std::vector<int>& fireGrid, int width, int height) {
     }
 }
 
+// Directionally weighted edge detection (Outward gradient from banner center)
+// Restricts lightning source pixels to the upper portion of the banner
+bool IsValidLightningSource(int x, int y, int startY, int bannerH)
+{
+    int relativeY = y - startY;
+    if (relativeY <= 1)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+    //int relativeY = y - startY;
+    //return relativeY <= (int)(bannerH * 0.6f); // Only fire from top 60% of banner
+}
+
+// Maps source position relative to banner center out to top/side screen edges
+Vector2 GetRadialScreenEdge(Vector2 point, Vector2 bannerCenter, int gridW, int gridH) {
+    float dx = point.x - bannerCenter.x;
+    float dy = point.y - bannerCenter.y;
+
+    // Angle in radians relative to center (-PI to PI, where -PI/2 is straight up)
+    float angle = atan2f(dy, dx);
+
+    // Left Screen Edge (Angle roughly between -180° and -135°)
+    if (angle < -0.75f * PI) {
+        float normY = (angle + PI) / (0.25f * PI); // 0.0 to 1.0 down left edge
+        return { 0.0f, std::min((float)gridH - 1.0f, (gridH * 0.4f) * normY) };
+    }
+    // Right Screen Edge (Angle roughly between -45° and 0°)
+    else if (angle > -0.25f * PI) {
+        float normY = std::abs(angle) / (0.25f * PI); // 0.0 to 1.0 down right edge
+        return { (float)(gridW - 1), std::min((float)gridH - 1.0f, (gridH * 0.4f) * normY) };
+    }
+    // Top Edge Arc (-135° to -45°)
+    else {
+        // Interpolate across top boundary from far-left to far-right
+        float t = (angle + 0.75f * PI) / (0.50f * PI); // 0.0 (left side) to 1.0 (right side)
+        return { t * (gridW - 1), 0.0f };
+    }
+}
+
+// --- ASCII LIGHTNING RENDERER ---
+void DrawASCIILine(Vector2 startGrid, Vector2 endGrid, float cellW, float cellH, Color color, int maxJitter = 1) {
+    int x0 = (int)startGrid.x;
+    int y0 = (int)startGrid.y;
+    int x1 = (int)endGrid.x;
+    int y1 = (int)endGrid.y;
+
+    int dx = std::abs(x1 - x0);
+    int dy = std::abs(y1 - y0);
+    int sx = (x0 < x1) ? 1 : -1;
+    int sy = (y0 < y1) ? 1 : -1;
+    int err = dx - dy;
+
+    int currX = x0;
+    int currY = y0;
+
+    while (true) {
+        int jitterX = (maxJitter > 0) ? GetRandomValue(-maxJitter, maxJitter) : 0;
+        int jitterY = (maxJitter > 0) ? GetRandomValue(-maxJitter, maxJitter) : 0;
+
+        int drawX = currX + jitterX;
+        int drawY = currY + jitterY;
+
+        char charToDraw = '*';
+        if (dx > dy * 2) charToDraw = '-';
+        else if (dy > dx * 2) charToDraw = '|';
+        else if ((sx > 0 && sy > 0) || (sx < 0 && sy < 0)) charToDraw = '\\';
+        else charToDraw = '/';
+
+        if (GetRandomValue(0, 5) == 0) charToDraw = '+';
+
+        char str[2] = { charToDraw, '\0' };
+        DrawText(str, (int)(drawX * cellW), (int)(drawY * cellH), (int)cellH, color);
+
+        if (currX == x1 && currY == y1) break;
+        int e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; currX += sx; }
+        if (e2 < dx) { err += dx; currY += sy; }
+    }
+}
+
+void DrawSustainedASCIILightning(Vector2 startGrid, Vector2 endGrid, float cellW, float cellH, Color mainCol, Color subCol, int gridW, int gridH) {
+    Vector2 midGrid = {
+        (startGrid.x + endGrid.x) * 0.5f + GetRandomValue(-2, 2),
+        (startGrid.y + endGrid.y) * 0.5f + GetRandomValue(-2, 2)
+    };
+
+    DrawASCIILine(startGrid, midGrid, cellW, cellH, mainCol, 0);
+    DrawASCIILine(midGrid, endGrid, cellW, cellH, mainCol, 0);
+
+    if (GetRandomValue(0, 1) == 0) {
+        Vector2 subArcTarget = {
+            endGrid.x + GetRandomValue(-6, 6),
+            endGrid.y + GetRandomValue(-6, 6)
+        };
+        subArcTarget.x = std::max(0.0f, std::min((float)(gridW - 1), subArcTarget.x));
+        subArcTarget.y = std::max(0.0f, std::min((float)(gridH - 1), subArcTarget.y));
+
+        DrawASCIILine(endGrid, subArcTarget, cellW, cellH, subCol, 1);
+    }
+}
+
 std::string GetEnemyName(const Enemy& enemy) {
     if (enemy.symbol == 'g') return "goblin";
     return "creature";
@@ -84,20 +234,20 @@ std::string GetGroundItemName(const Item& item) {
     return "item";
 }
 
-void GenerateFloor(TileType map[mapWidth][mapHeight], bool explored[mapWidth][mapHeight], std::vector<Room>& rooms, Player& player, std::vector<Enemy>& enemies) {
+void GenerateFloor(TileType map[MAP_WIDTH][MAP_HEIGHT], bool explored[MAP_WIDTH][MAP_HEIGHT], std::vector<Room>& rooms, Player& player, std::vector<Enemy>& enemies) {
     rooms.clear();
-    for (int x = 0; x < mapWidth; x++) {
-        for (int y = 0; y < mapHeight; y++) {
+    for (int x = 0; x < MAP_WIDTH; x++) {
+        for (int y = 0; y < MAP_HEIGHT; y++) {
             map[x][y] = TILE_WALL;
             explored[x][y] = false;
         }
     }
 
     int attempts = 0;
-    while (rooms.size() < maxRooms && attempts < 100) {
+    while (rooms.size() < MAX_ROOMS && attempts < 100) {
         attempts++;
         int rw = GetRandomValue(4, 8), rh = GetRandomValue(4, 8);
-        int rx = GetRandomValue(1, mapWidth - rw - 1), ry = GetRandomValue(1, mapHeight - rh - 1);
+        int rx = GetRandomValue(1, MAP_WIDTH - rw - 1), ry = GetRandomValue(1, MAP_HEIGHT - rh - 1);
         Room nr = { rx, ry, rw, rh };
 
         bool failed = false;
@@ -158,6 +308,107 @@ void ApplyProfileToPlayer(const CharacterProfile& profile, Player& player) {
     player.equippedAmulets.clear(); player.equippedRings.clear();
 }
 
+
+struct Snowflake {
+    float x, y;
+    float speed;
+    char symbol;
+    Color color;
+};
+
+// Cascades snow along banner top edges and slides excess snow off cliff edges
+void UpdateSnowPhysics(
+    std::vector<int>& snowGrid,
+    std::vector<Snowflake>& snowflakes,
+    int gridW,
+    int gridH,
+    int startX,
+    int startY,
+    int bannerW,
+    int bannerH,
+    const std::vector<std::string>& banner
+) {
+    auto IsPixel = [&](int x, int y) {
+        int bx = x - startX, by = y - startY;
+        return (by >= 0 && by < bannerH && bx >= 0 && bx < bannerW && banner[by][bx] != ' ');
+        };
+
+    auto IsTopEdge = [&](int x, int y) {
+        if (!IsPixel(x, y)) return false;
+        return !IsPixel(x, y - 1);
+        };
+
+    for (int y = 0; y < gridH; y++) {
+        for (int x = 0; x < gridW; x++) {
+            int idx = y * gridW + x;
+            if (snowGrid[idx] <= 0) continue;
+
+            // Clear any accumulation that isn't on a top edge tile
+            if (!IsTopEdge(x, y)) {
+                snowGrid[idx] = 0;
+                continue;
+            }
+
+            int dir = (GetRandomValue(0, 1) == 0) ? -1 : 1;
+            for (int i = 0; i < 2; i++, dir = -dir) {
+                int nx = x + dir;
+                if (nx < 0 || nx >= gridW) continue;
+
+                int ny = -1;
+                if (IsTopEdge(nx, y)) ny = y;
+                else if (IsTopEdge(nx, y + 1)) ny = y + 1;
+                else if (IsTopEdge(nx, y - 1)) ny = y - 1;
+
+                if (ny != -1) {
+                    // Balance mound height between adjacent top edges
+                    int nIdx = ny * gridW + nx;
+                    if (snowGrid[idx] > snowGrid[nIdx] + 1) {
+                        snowGrid[idx]--;
+                        snowGrid[nIdx]++;
+                        break;
+                    }
+                }
+                else {
+                    // Edge of letter / cliff: slide snow off into free fall
+                    if (snowGrid[idx] > 2 && GetRandomValue(0, 3) == 0) {
+                        snowGrid[idx]--;
+                        for (auto& flake : snowflakes) {
+                            if (flake.y <= 0 || flake.y >= gridH - 1) {
+                                flake.x = (float)nx;
+                                flake.y = (float)y;
+                                flake.speed = (float)GetRandomValue(3, 7) / 10.0f;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Cascades snow across adjacent pixels when height difference > 1
+void UpdateSnowPhysics(std::vector<int>& snowGrid, int gridW, int gridH) {
+    for (int y = 0; y < gridH; y++) {
+        for (int x = 0; x < gridW; x++) {
+            int idx = y * gridW + x;
+            if (snowGrid[idx] <= 1) continue;
+
+            // Check if left neighbor has space
+            if (x > 0 && snowGrid[idx] > snowGrid[y * gridW + (x - 1)] + 1) {
+                snowGrid[idx]--;
+                snowGrid[y * gridW + (x - 1)]++;
+            }
+            // Check if right neighbor has space
+            else if (x < gridW - 1 && snowGrid[idx] > snowGrid[y * gridW + (x + 1)] + 1) {
+                snowGrid[idx]--;
+                snowGrid[y * gridW + (x + 1)]++;
+            }
+        }
+    }
+}
+
 int main()
 {
     const int tileSize = 24;
@@ -172,8 +423,8 @@ int main()
     ToggleBorderlessWindowed();
     SetTargetFPS(60);
 
-    TileType map[mapWidth][mapHeight];
-    bool explored[mapWidth][mapHeight] = { false };
+    TileType map[MAP_WIDTH][MAP_HEIGHT];
+    bool explored[MAP_WIDTH][MAP_HEIGHT] = { false };
     std::vector<Room> rooms;
     std::vector<LevelState> dungeon;
     int currentFloor = 0;
@@ -189,11 +440,64 @@ int main()
     GameState currentState = STATE_TITLE;
     int titleMenuSelection = 0;
 
+    TitleTheme currentTitleTheme = (TitleTheme)GetRandomValue(0, THEME_COUNT - 1);
+
     std::vector<CharacterProfile> tavernCandidates;
     int selectedCandidate = 0;
 
-    const int FIRE_W = 90; const int FIRE_H = 45;
-    std::vector<int> fireGrid(FIRE_W * FIRE_H, 0);
+    const int GRID_W = 90; const int GRID_H = 45;
+    std::vector<int> fireGrid(GRID_W * GRID_H, 0);
+
+    // Raindrops
+    struct RainDrop {
+        float x, y;
+        float speed;
+        int impactTimer;
+    };
+    std::vector<RainDrop> rainDrops(60);
+    for (auto& drop : rainDrops) {
+        drop.x = (float)GetRandomValue(0, GRID_W - 1);
+        drop.y = (float)GetRandomValue(0, GRID_H - 1);
+        drop.speed = (float)GetRandomValue(12, 20) / 10.0f;
+        drop.impactTimer = 0;
+    }
+
+    // Snowflakes (struct definition moved above UpdateSnowPhysics)
+    std::vector<Snowflake> snowflakes(50);
+    const char flakeChars[] = "*+.o#";
+    for (auto& flake : snowflakes) {
+        flake.x = (float)GetRandomValue(0, GRID_W - 1);
+        flake.y = (float)GetRandomValue(0, GRID_H - 1);
+        flake.speed = (float)GetRandomValue(2, 6) / 10.0f;
+        flake.symbol = flakeChars[GetRandomValue(0, 4)];
+        flake.color = (GetRandomValue(0, 1) == 0) ? SKYBLUE : RAYWHITE;
+    }
+    std::vector<int> snowAccumulation(GRID_W * GRID_H, 0);
+
+    // Electric Arc Particles
+    struct ElectricParticle {
+        float x, y;
+        float vx, vy;
+        float alpha;
+        char symbol;
+    };
+    std::vector<ElectricParticle> arcParticles(35);
+    const char sparkChars[] = "*+~:-";
+    for (auto& p : arcParticles) {
+        p.x = (float)GetRandomValue(0, GRID_W - 1);
+        p.y = (float)GetRandomValue(0, GRID_H - 1);
+        p.vx = (float)GetRandomValue(-8, 8) / 10.0f;
+        p.vy = (float)GetRandomValue(-8, 8) / 10.0f;
+        p.alpha = (float)GetRandomValue(30, 100) / 100.0f;
+        p.symbol = sparkChars[GetRandomValue(0, 4)];
+    }
+
+    float electricCycleTimer = 0.0f;
+    struct LightningAnchor {
+        Vector2 start;
+        Vector2 end;
+    };
+    std::vector<LightningAnchor> persistentAnchors;
 
     bool enableFog = true;
     bool showInventory = false;
@@ -209,11 +513,19 @@ int main()
     bool keepRunning = true;
     while (keepRunning && !WindowShouldClose())
     {
-        UpdateFire(fireGrid, FIRE_W, FIRE_H);
+        float frameDt = GetFrameTime();
+        UpdateFire(fireGrid, GRID_W, GRID_H);
 
         // --- TITLE STATE ---
         if (currentState == STATE_TITLE)
         {
+            if (IsKeyPressed(KEY_T)) {
+                currentTitleTheme = (TitleTheme)((currentTitleTheme + 1) % THEME_COUNT);
+                electricCycleTimer = 0.0f;
+                persistentAnchors.clear();
+                std::fill(snowAccumulation.begin(), snowAccumulation.end(), 0);
+            }
+
             const int titleOptionCount = 3;
             if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
                 titleMenuSelection--;
@@ -240,28 +552,241 @@ int main()
 
             BeginDrawing();
             ClearBackground(BLACK);
-            float cellW = (float)GetScreenWidth() / FIRE_W;
-            float cellH = (float)GetScreenHeight() / FIRE_H;
+            float cellW = (float)GetScreenWidth() / GRID_W;
+            float cellH = (float)GetScreenHeight() / GRID_H;
             int bannerW = (int)G_TITLE_BANNER[0].length();
             int bannerH = (int)G_TITLE_BANNER.size();
-            int startX = (FIRE_W - bannerW) / 2;
+            int startX = (GRID_W - bannerW) / 2;
             int startY = 10;
 
-            for (int y = 0; y < FIRE_H; y++) {
-                for (int x = 0; x < FIRE_W; x++) {
-                    int intensity = fireGrid[y * FIRE_W + x];
-                    int bx = x - startX, by = y - startY;
-                    bool isTitlePixel = (by >= 0 && by < bannerH && bx >= 0 && bx < bannerW && G_TITLE_BANNER[by][bx] != ' ');
+            Vector2 bannerCenter = { startX + bannerW * 0.5f, startY + bannerH * 0.5f };
 
-                    if (isTitlePixel) {
-                        char c = G_TITLE_BANNER[by][bx]; char str[2] = { c, '\0' };
-                        Color dimmedFire = GetFireColor(intensity / 3.5f);
-                        DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, (intensity > 0) ? dimmedFire : Color{ 55, 35, 40, 255 });
+            auto IsBannerPixel = [&](int x, int y) {
+                int bx = x - startX, by = y - startY;
+                if (by < 0 || by >= bannerH) return false;
+                if (bx < 0 || bx >= (int)G_TITLE_BANNER[by].length()) return false; // Check against row's real length
+                return G_TITLE_BANNER[by][bx] != ' ';
+                };
+
+            auto IsBannerRoofPixel = [&](int x, int y) {
+                if (!IsBannerPixel(x, y))
+                {
+                    return false;
+                }
+                for (int checkY = 0; checkY < y; checkY++)
+                {
+                    if (IsBannerPixel(x, checkY))
+                    {
+                        return false;
                     }
-                    else if (intensity > 0) {
-                        Color fireColor = GetFireColor(intensity);
-                        char c = GetFireChar(intensity); char str[2] = { c, '\0' };
-                        DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, fireColor);
+                }
+                return true;
+                };
+
+            std::vector<Vector2> bannerPixels;
+            if (currentTitleTheme == THEME_ELECTRIC) {
+                for (int y = 0; y < GRID_H; y++) {
+                    for (int x = 0; x < GRID_W; x++) {
+                        if (IsBannerPixel(x, y) && IsValidLightningSource(x, y, startY, bannerH)) {
+                            bannerPixels.push_back({ (float)x, (float)y });
+                        }
+                    }
+                }
+            }
+
+            // RENDER SELECTED ANIMATION THEME
+            if (currentTitleTheme == THEME_FIRE) {
+                for (int y = 0; y < GRID_H; y++) {
+                    for (int x = 0; x < GRID_W; x++) {
+                        int intensity = fireGrid[y * GRID_W + x];
+                        if (IsBannerPixel(x, y)) {
+                            int bx = x - startX, by = y - startY;
+                            char c = G_TITLE_BANNER[by][bx]; char str[2] = { c, '\0' };
+                            Color dimmedFire = GetFireColor(intensity / 3.5f);
+                            DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, (intensity > 0) ? dimmedFire : Color{ 55, 35, 40, 255 });
+                        }
+                        else if (intensity > 0) {
+                            Color fireColor = GetFireColor(intensity);
+                            char c = GetFireChar(intensity); char str[2] = { c, '\0' };
+                            DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, fireColor);
+                        }
+                    }
+                }
+            }
+            else if (currentTitleTheme == THEME_RAIN) {
+                for (auto& drop : rainDrops) {
+                    if (drop.impactTimer > 0) {
+                        drop.impactTimer--;
+                        if (drop.impactTimer <= 0) {
+                            drop.y = 0;
+                            drop.x = (float)GetRandomValue(0, GRID_W - 1);
+                        }
+                        continue;
+                    }
+
+                    drop.y += drop.speed;
+                    drop.x += 0.35f;
+                    if (drop.x >= GRID_W)
+                    {
+                        drop.x -= GRID_W;
+                    }
+                    if (drop.x < 0)
+                    {
+                        drop.x += GRID_W;
+                    }
+                    int currX = (int)drop.x;
+                    int currY = (int)drop.y;
+
+                    if (IsBannerRoofPixel(currX, currY))
+                    {
+                        drop.y = (float)currY;
+                        drop.impactTimer = 4;
+                    }
+                    else if (drop.y >= GRID_H)
+                    {
+                        drop.y = 0;
+                        drop.x = (float)GetRandomValue(0, GRID_W - 1);
+                    }
+                }
+
+                for (const auto& drop : rainDrops) {
+                    int dx = (int)drop.x;
+                    int dy = (int)drop.y;
+                    if (drop.impactTimer > 0) {
+                        DrawText("o", (int)(dx * cellW), (int)(dy * cellH - cellH * 0.5f), (int)cellH, WHITE);
+                    }
+                    else if (!IsBannerPixel(dx, dy))
+                    {
+                        DrawText("/", (int)(dx * cellW), (int)(dy * cellH), (int)cellH, Color{ 100, 160, 240, 180 });
+                    }
+                }
+
+                for (int y = 0; y < GRID_H; y++) {
+                    for (int x = 0; x < GRID_W; x++) {
+                        if (IsBannerPixel(x, y)) {
+                            int bx = x - startX, by = y - startY;
+                            char c = G_TITLE_BANNER[by][bx]; char str[2] = { c, '\0' };
+                            DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, SKYBLUE);
+                        }
+                    }
+                }
+            }
+            else if (currentTitleTheme == THEME_ICE) {
+                UpdateSnowPhysics(snowAccumulation, snowflakes, GRID_W, GRID_H, startX, startY, bannerW, bannerH, G_TITLE_BANNER);
+
+                for (auto& flake : snowflakes) {
+                    flake.y += flake.speed;
+                    int fx = (int)flake.x;
+                    int fy = (int)flake.y;
+
+                    if (IsBannerRoofPixel(fx, fy))
+                    {
+                        int gridIdx = fy * GRID_W + fx;
+                        if (gridIdx >= 0 && gridIdx < GRID_W * GRID_H) {
+                            if (snowAccumulation[gridIdx] < 6) {
+                                snowAccumulation[gridIdx]++;
+                                flake.y = 0;
+                                flake.x = (float)GetRandomValue(0, GRID_W - 1);
+                            }
+                        }
+                    }
+                    else if (flake.y >= GRID_H) {
+                        flake.y = 0;
+                        flake.x = (float)GetRandomValue(0, GRID_W - 1);
+                    }
+                }
+
+                for (const auto& flake : snowflakes) {
+                    int fx = (int)flake.x;
+                    int fy = (int)flake.y;
+                    if (!IsBannerPixel(fx, fy)) {
+                        char str[2] = { flake.symbol, '\0' };
+                        DrawText(str, (int)(fx * cellW), (int)(fy * cellH), (int)cellH, flake.color);
+                    }
+                }
+
+                for (int y = 0; y < GRID_H; y++) {
+                    for (int x = 0; x < GRID_W; x++) {
+                        int gridIdx = y * GRID_W + x;
+                        if (IsBannerPixel(x, y)) {
+                            int bx = x - startX, by = y - startY;
+                            char c = G_TITLE_BANNER[by][bx]; char str[2] = { c, '\0' };
+                            DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, Color{ 200, 230, 255, 255 });
+                        }
+                        if (snowAccumulation[gridIdx] > 0) {
+                            const char snowChars[] = "._-:=+*#";
+                            int stackLevel = std::min(7, snowAccumulation[gridIdx] - 1);
+                            char str[2] = { snowChars[stackLevel], '\0' };
+                            DrawText(str, (int)(x * cellW), (int)((y - 0.4f) * cellH), (int)cellH, RAYWHITE);
+                        }
+                    }
+                }
+            }
+            else if (currentTitleTheme == THEME_ELECTRIC) {
+                float prevTimer = electricCycleTimer;
+                electricCycleTimer += frameDt;
+                if (electricCycleTimer > 5.0f) electricCycleTimer -= 5.0f;
+
+                bool isCharging = (electricCycleTimer >= 3.2f && electricCycleTimer < 4.2f);
+                bool isBursting = (electricCycleTimer >= 4.2f && electricCycleTimer < 4.8f);
+
+                if (prevTimer < 4.2f && isBursting && !bannerPixels.empty()) {
+                    persistentAnchors.clear();
+                    for (int a = 0; a < 5; a++) {
+                        int idxA = GetRandomValue(0, (int)bannerPixels.size() - 1);
+                        Vector2 pA = bannerPixels[idxA];
+                        Vector2 pB = GetRadialScreenEdge(pA, bannerCenter, GRID_W, GRID_H);
+
+                        persistentAnchors.push_back({ pA, pB });
+                    }
+                }
+                else if (!isBursting) {
+                    persistentAnchors.clear();
+                }
+
+                for (auto& p : arcParticles) {
+                    p.x += p.vx; p.y += p.vy;
+                    if (p.x < 0 || p.x >= GRID_W) p.vx *= -1;
+                    if (p.y < 0 || p.y >= GRID_H) p.vy *= -1;
+                    int px = (int)p.x; int py = (int)p.y;
+                    if (!IsBannerPixel(px, py)) {
+                        char str[2] = { p.symbol, '\0' };
+                        Color pCol = (GetRandomValue(0, 1) == 0) ? Color{ 120, 60, 220, (unsigned char)(p.alpha * 150) } : Color{ 60, 180, 240, (unsigned char)(p.alpha * 150) };
+                        DrawText(str, (int)(px * cellW), (int)(py * cellH), (int)cellH, pCol);
+                    }
+                }
+
+                for (int y = 0; y < GRID_H; y++) {
+                    for (int x = 0; x < GRID_W; x++) {
+                        if (IsBannerPixel(x, y)) {
+                            int bx = x - startX, by = y - startY;
+                            char c = G_TITLE_BANNER[by][bx]; char str[2] = { c, '\0' };
+
+                            Color bannerCol = Color{ 80, 180, 255, 255 };
+                            if (isCharging) {
+                                bannerCol = (GetRandomValue(0, 1) == 0) ? Color{ 160, 230, 255, 255 } : WHITE;
+                            }
+                            else if (isBursting) {
+                                bannerCol = (GetRandomValue(0, 3) == 0) ? RAYWHITE : SKYBLUE;
+                            }
+
+                            DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, bannerCol);
+                        }
+                    }
+                }
+
+                if (isBursting && !persistentAnchors.empty()) {
+                    for (const auto& anchor : persistentAnchors) {
+                        DrawSustainedASCIILightning(anchor.start, anchor.end, cellW, cellH, RAYWHITE, PURPLE, GRID_W, GRID_H);
+                    }
+                }
+                else if (!bannerPixels.empty()) {
+                    int idleBolts = isCharging ? 2 : 1;
+                    for (int i = 0; i < idleBolts; i++) {
+                        int idxA = GetRandomValue(0, (int)bannerPixels.size() - 1);
+                        int idxB = GetRandomValue(0, (int)bannerPixels.size() - 1);
+                        Color mainCol = isCharging ? WHITE : SKYBLUE;
+                        DrawSustainedASCIILightning(bannerPixels[idxA], bannerPixels[idxB], cellW, cellH, mainCol, Color{ 60, 120, 240, 200 }, GRID_W, GRID_H);
                     }
                 }
             }
@@ -316,7 +841,6 @@ int main()
                 tavernCandidates = GenerateTavernCandidates(6);
             }
 
-            // Keyboard direct selection (1 - 6)
             for (int k = 0; k < 6; k++) {
                 if (IsKeyPressed(KEY_ONE + k)) selectedCandidate = k;
             }
@@ -324,7 +848,7 @@ int main()
             bool confirmSelection = IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
 
             BeginDrawing();
-            ClearBackground(Color{ 18, 12, 14, 255 }); // Warm atmospheric dark tavern background
+            ClearBackground(Color{ 18, 12, 14, 255 });
 
             DrawText("THE RUSTY ANVIL TAVERN", GetScreenWidth() / 2 - MeasureText("THE RUSTY ANVIL TAVERN", 32) / 2, 30, 32, GOLD);
             DrawText("Select a patron to descend into the dungeon...", GetScreenWidth() / 2 - MeasureText("Select a patron to descend into the dungeon...", 18) / 2, 70, 18, LIGHTGRAY);
@@ -363,18 +887,13 @@ int main()
                 DrawText(TextFormat("STR:%d END:%d AGI:%d INT:%d", cand.str, cand.end, cand.agi, cand.intel), cx + 12, cy + 78, 13, LIGHTGRAY);
                 DrawText(TextFormat("WIL:%d PER:%d LCK:%d", cand.wil, cand.per, cand.lck), cx + 12, cy + 96, 13, LIGHTGRAY);
 
-                // Display Starting Equipment
                 std::string mainHand = "Bare Fists";
                 if (!cand.equippedSlots[SLOT_MAIN_HAND].IsEmpty()) {
                     mainHand = GetGroundItemName(cand.equippedSlots[SLOT_MAIN_HAND]);
                 }
                 DrawText(TextFormat("Gear: %s", mainHand.c_str()), cx + 12, cy + 118, 13, SKYBLUE);
-
-                // Flavor Quote
-                DrawText(TextFormat("\"%s\"", cand.flavorQuote.c_str()), cx + 12, cy + 145, 12, GRAY);
             }
 
-            // Tavern Controls Bar
             std::string hint = "[WASD / Arrows / 1-6] Select  |  [ENTER / Click] Begin Quest  |  [R] Reroll Patrons";
             DrawText(hint.c_str(), GetScreenWidth() / 2 - MeasureText(hint.c_str(), 18) / 2, GetScreenHeight() - 50, 18, GOLD);
 
@@ -383,15 +902,14 @@ int main()
             if (confirmSelection) {
                 ApplyProfileToPlayer(tavernCandidates[selectedCandidate], player);
 
-                // Clear & Generate Level 1
                 dungeon.clear();
                 currentFloor = 0;
                 groundItems.clear();
                 GenerateFloor(map, explored, rooms, player, enemies);
 
                 LevelState firstFloor;
-                for (int x = 0; x < mapWidth; x++) {
-                    for (int y = 0; y < mapHeight; y++) {
+                for (int x = 0; x < MAP_WIDTH; x++) {
+                    for (int y = 0; y < MAP_HEIGHT; y++) {
                         firstFloor.savedMap[x][y] = map[x][y];
                         firstFloor.savedExplored[x][y] = explored[x][y];
                     }
@@ -591,7 +1109,7 @@ int main()
                 foundSomething = true;
             }
 
-            if (!foundSomething && clickX >= 0 && clickX < mapWidth && clickY >= 0 && clickY < mapHeight) {
+            if (!foundSomething && clickX >= 0 && clickX < MAP_WIDTH && clickY >= 0 && clickY < MAP_HEIGHT) {
                 if (!enableFog || explored[clickX][clickY]) {
                     TileType tile = map[clickX][clickY];
                     switch (tile) {
@@ -649,8 +1167,10 @@ int main()
             bool wentUp = (map[player.x][player.y] == TILE_STAIR_UP && currentFloor > 0);
 
             if (wentDown || wentUp) {
-                for (int x = 0; x < mapWidth; x++) {
-                    for (int y = 0; y < mapHeight; y++) {
+                PerformFloorTransition(wentDown);
+
+                for (int x = 0; x < MAP_WIDTH; x++) {
+                    for (int y = 0; y < MAP_HEIGHT; y++) {
                         dungeon[currentFloor].savedMap[x][y] = map[x][y];
                         dungeon[currentFloor].savedExplored[x][y] = explored[x][y];
                     }
@@ -668,8 +1188,8 @@ int main()
                     dungeon.push_back(newFloor);
                 }
                 else {
-                    for (int x = 0; x < mapWidth; x++) {
-                        for (int y = 0; y < mapHeight; y++) {
+                    for (int x = 0; x < MAP_WIDTH; x++) {
+                        for (int y = 0; y < MAP_HEIGHT; y++) {
                             map[x][y] = dungeon[currentFloor].savedMap[x][y];
                             explored[x][y] = dungeon[currentFloor].savedExplored[x][y];
                         }
@@ -678,8 +1198,8 @@ int main()
                     groundItems = dungeon[currentFloor].savedItems;
 
                     TileType targetStair = wentDown ? TILE_STAIR_UP : TILE_STAIR_DOWN;
-                    for (int x = 0; x < mapWidth; x++) {
-                        for (int y = 0; y < mapHeight; y++) {
+                    for (int x = 0; x < MAP_WIDTH; x++) {
+                        for (int y = 0; y < MAP_HEIGHT; y++) {
                             if (map[x][y] == targetStair) {
                                 player.x = x + 1;
                                 player.y = y;
@@ -695,7 +1215,7 @@ int main()
             for (int j = -2; j <= 2; j++) {
                 int viewX = player.x + i;
                 int viewY = player.y + j;
-                if (viewX >= 0 && viewX < mapWidth && viewY >= 0 && viewY < mapHeight) {
+                if (viewX >= 0 && viewX < MAP_WIDTH && viewY >= 0 && viewY < MAP_HEIGHT) {
                     explored[viewX][viewY] = true;
                 }
             }
@@ -706,11 +1226,11 @@ int main()
         ClearBackground(BLACK);
         BeginMode2D(camera);
 
-        for (int x = -30; x < mapWidth + 30; x++) {
-            for (int y = -30; y < mapHeight + 30; y++) {
-                if (x < 0 || x >= mapWidth || y < 0 || y >= mapHeight) {
-                    int edgeX = std::max(0, std::min(x, mapWidth - 1));
-                    int edgeY = std::max(0, std::min(y, mapHeight - 1));
+        for (int x = -30; x < MAP_WIDTH + 30; x++) {
+            for (int y = -30; y < MAP_HEIGHT + 30; y++) {
+                if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) {
+                    int edgeX = std::max(0, std::min(x, MAP_WIDTH - 1));
+                    int edgeY = std::max(0, std::min(y, MAP_HEIGHT - 1));
                     bool fakeExplored = explored[edgeX][edgeY] && (std::abs(x - edgeX) <= 2) && (std::abs(y - edgeY) <= 2);
                     if (fakeExplored || !enableFog) {
                         DrawText("#", x * tileSize + 4, y * tileSize + 2, tileSize, DARKGRAY);
@@ -839,7 +1359,14 @@ int main()
                         else if (i == 1) { actionMessage = "Save feature not implemented yet."; showPauseMenu = false; }
                         else if (i == 2) { actionMessage = "Load feature not implemented yet."; showPauseMenu = false; }
                         else if (i == 3) { actionMessage = "Options feature not implemented yet."; showPauseMenu = false; }
-                        else if (i == 4) { currentState = STATE_TITLE; showPauseMenu = false; }
+                        else if (i == 4) {
+                            currentTitleTheme = (TitleTheme)GetRandomValue(0, THEME_COUNT - 1);
+                            electricCycleTimer = 0.0f;
+                            persistentAnchors.clear();
+                            std::fill(snowAccumulation.begin(), snowAccumulation.end(), 0);
+                            currentState = STATE_TITLE;
+                            showPauseMenu = false;
+                        }
                         else if (i == 5) keepRunning = false;
                     }
                 }
