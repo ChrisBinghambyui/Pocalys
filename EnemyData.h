@@ -20,6 +20,9 @@ struct EnemyArchetype
     int maxMaterialTier;
     int minWeaponCount;              // How many rolled weapons this archetype spawns with
     int maxWeaponCount;
+
+    char glyph = '?';    // Map symbol, copied onto Enemy.symbol at spawn
+    Color color = WHITE; // Map color, copied onto Enemy.color at spawn
 };
 
 struct SpawnRule
@@ -30,3 +33,7 @@ struct SpawnRule
     int base_weight;
     int weight_per_floor;
 };
+
+
+extern std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES;
+extern std::vector<SpawnRule> G_SPAWN_RULES;

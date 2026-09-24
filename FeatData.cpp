@@ -8,6 +8,8 @@ std::vector<Feat> G_FEATS = {
     { 0, "Bladestorm", FEAT_MARTIAL, "After a successful Long Blade hit, make one additional attack at +20 to roll. Once per combat, activated ability.", false, false, {}, {{5, 50}}, {} },
     { 1, "Shield Wall", FEAT_MARTIAL, "On a successful Block, your next attack against that attacker is made with -10 on the roll.", false, false, {}, {{0, 50}}, {} },
     { 2, "Bone-Crusher", FEAT_MARTIAL, "Critical blunt hits (natural 1-2) apply Prone to the target and push them back 10 ft.", false, false, {}, {{4, 50}}, {} },
+    { 3, "Fleet-Footed", FEAT_MARTIAL, "No longer suffer the +10 roll penalty when you move and attack in the same round.", false, false, {}, {{8, 50}}, {} },
+    { 4, "Iron Lungs", FEAT_MARTIAL, "Lose 1 less FP on each attack (minimum 1).", false, false, {}, {{8, 60}}, {} },
     { 5, "Axe-Master", FEAT_MARTIAL, "Your Axe attacks bypass 1 point of the target's AR.", false, false, {}, {{6, 60}}, {} },
     { 6, "Calculated Thrust", FEAT_MARTIAL, "If you move away from a target and then attack with a spear, deal +1d6 bonus damage.", false, false, {}, {{7, 50}}, {} },
     { 7, "Dead Eye", FEAT_MARTIAL, "No FP cost for ranged attacks. The ranged critical hit window increases by 2.", false, false, {}, {{23, 60}}, {} },
@@ -89,6 +91,34 @@ std::vector<Feat> G_FEATS = {
     { 74, "Potionwright", FEAT_STEALTH_SOCIAL, "Throwable potions deal an additional 25% damage; thrown and consumable potions can be used interchangably.", false, false, {}, {{16, 60}}, {69} },
 
     // ==========================================
+    // RACIAL FEATS
+    // Ids 200 to 219: the innate ability of each race in G_RACES, granted at character creation.
+    // Id 220 and up: optional feats restricted to certain races.
+    // The last field lists the race ids allowed to hold the feat.
+    // ==========================================
+    { 200, "Elemental Sensitivity", FEAT_RACIAL, "Take 25% extra fire, frost, and shock damage, but your elemental spells deal 25% more.", false, false, {}, {}, {}, { "solarirum" } },
+    { 201, "Forest-Born", FEAT_RACIAL, "Ignore natural difficult terrain. Tracking and wilderness checks are Easy.", false, false, {}, {}, {}, { "sylvarirum" } },
+    { 202, "Attuned", FEAT_RACIAL, "25% magic resistance: all incoming spell damage is reduced by a quarter.", false, false, {}, {}, {}, { "vethanirum" } },
+    { 203, "Forge-Born", FEAT_RACIAL, "50% fire resistance. Kindle small, harmless flames at will.", false, false, {}, {}, {}, { "ashirum" } },
+    { 204, "Stone Blood", FEAT_RACIAL, "Reduce all incoming physical damage by 1 after AR.", false, false, {}, {}, {}, { "apisdrenn" } },
+    { 205, "Heat-Forged", FEAT_RACIAL, "50% fire resistance. Once per floor, touch a metal weapon for +1 damage or armor for +1 AR for the next combat.", false, false, {}, {}, {}, { "apiskeld" } },
+    { 206, "Gem Resonance", FEAT_RACIAL, "Sense a gem's age and origin on sight. Once per floor, consume a filled soul gem to restore MP equal to its tier.", false, false, {}, {}, {}, { "apisveldir" } },
+    { 207, "Pressure-Born", FEAT_RACIAL, "Reduce all incoming physical damage by 1 after AR. Breathe underwater. Your skin glows dimly in the dark.", false, false, {}, {}, {}, { "kreln" } },
+    { 208, "Voice of Command", FEAT_RACIAL, "Once per combat, a hostile humanoid within 10m must pass a WIL check vs 40 or pause for one round.", false, false, {}, {}, {}, { "imperial" } },
+    { 209, "Battle Shout", FEAT_RACIAL, "Once per combat, enemies within 10m must pass a WIL check vs 40 or be Frightened for one round.", false, false, {}, {}, {}, { "nordal" } },
+    { 210, "Adrenaline", FEAT_RACIAL, "Once per combat, as a free action, regain 1d6+1 FP. Works even while Staggered.", false, false, {}, {}, {}, { "sunblade" } },
+    { 211, "Hardy Adaptation", FEAT_RACIAL, "Environmental hazards cost no extra FP to cross, and you have advantage to avoid their damage.", false, false, {}, {}, {}, { "ashveld" } },
+    { 212, "Berserker", FEAT_RACIAL, "Once per combat, rage for 3 rounds: +5 STR damage bonus, immune to Frightened and Staggered. Lose 1d6 FP afterward.", false, false, {}, {}, {}, { "stoneguard" } },
+    { 213, "Ancient Resonance", FEAT_RACIAL, "Once per floor, add your STR damage bonus to a spell. Casting above your skill rank carries a smaller penalty.", false, false, {}, {}, {}, { "gorirum" } },
+    { 214, "Veil-Step", FEAT_RACIAL, "Once per rest, become incorporeal until your next turn: 25% of physical attacks pass through you.", false, false, {}, {}, {}, { "veildrift" } },
+    { 215, "Bloodspell", FEAT_RACIAL, "Once per combat, cast a spell using HP instead of MP. Regain 1 MP whenever magic damages you.", false, false, {}, {}, {}, { "murrak" } },
+    { 216, "Four-Handed", FEAT_RACIAL, "Once per combat, make one extra light weapon attack without spending FP.", false, false, {}, {}, {}, { "bovari" } },
+    { 217, "Spell-Scarred", FEAT_RACIAL, "Advantage against harmful magic. Beneficial magic from others requires a WIL save to accept.", false, false, {}, {}, {}, { "naukin" } },
+    { 218, "Spur Strike", FEAT_RACIAL, "Once per round, make a free 1d4 piercing attack with your back-spurs.", false, false, {}, {}, {}, { "arantza" } },
+    { 219, "Aquatic Dominance", FEAT_RACIAL, "Advantage on all rolls while in water. Near-immune to disease.", false, false, {}, {}, {}, { "verdathi" } },
+    { 220, "Stonestep", FEAT_RACIAL, "Your movement never provokes reaction strikes. Squeeze past enemies in corridors. Only magic can force you to move.", false, false, {}, {}, {}, { "apisdrenn", "apiskeld", "apisveldir", "kreln" } },
+
+    // ==========================================
     // BOONS (Gained every 5 levels)
     // ==========================================
     { 100, "Bonus Feats", BOON_UNIVERSAL, "Take 2 Feats of your choice instead of a Boon.", true, true, {}, {}, {} },
@@ -115,6 +145,18 @@ std::vector<Feat> G_FEATS = {
     { 126, "Loremaster", BOON_EXPLORATION_CRAFT, "Cast spells from any school without needing them as Major/Minor skills.", true, false, {}, {{-1, 80}}, {} }
 };
 
+const Feat* FindFeat(int featId)
+{
+    for (size_t i = 0; i < G_FEATS.size(); i++)
+    {
+        if (G_FEATS[i].id == featId)
+        {
+            return &G_FEATS[i];
+        }
+    }
+    return nullptr;
+}
+
 bool canPlayerTakeFeat(const Player& player, int featId)
 {
     const Feat* targetFeat = nullptr;
@@ -138,6 +180,24 @@ bool canPlayerTakeFeat(const Player& player, int featId)
             for (int fId : player.activeFeats) {
                 if (fId == featId) return false;
             }
+        }
+    }
+
+    // 1b. Check race restriction (empty list = any race)
+    if (!targetFeat->requiredRaceIds.empty())
+    {
+        bool raceAllowed = false;
+        for (size_t i = 0; i < targetFeat->requiredRaceIds.size(); i++)
+        {
+            if (targetFeat->requiredRaceIds[i] == player.raceId)
+            {
+                raceAllowed = true;
+                break;
+            }
+        }
+        if (!raceAllowed)
+        {
+            return false;
         }
     }
 

@@ -1,4 +1,5 @@
 #include "Combat.h"
+#include "EnemyFactory.h"
 #include "raylib.h"
 
 int CalculateUnarmedDamage(const Player& attacker)
@@ -21,12 +22,12 @@ bool ResolveBumpAttack(Player& attacker, Enemy& defender, std::string& actionMes
     {
         defender.hp = 0;
         defender.isDead = true;
-        actionMessage = "The goblin collapses!";
+        actionMessage = "The " + GetEnemyDisplayName(defender) + " collapses!";
         return true;
     }
     else
     {
-        actionMessage = "You hit the goblin for " + std::to_string(damage) + " damage!";
+        actionMessage = "You hit the " + GetEnemyDisplayName(defender) + " for " + std::to_string(damage) + " damage!";
         return false;
     }
 }

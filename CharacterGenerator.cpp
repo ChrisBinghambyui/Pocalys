@@ -17,14 +17,30 @@ static const std::vector<std::string> G_EPITHETS = {
 };
 
 static const std::vector<ClassData> G_CLASSES = {
-    { "Knight",     "An armored defender trained in heavy arms.",       10, 10,  0, -5,  0,  5,  0, 3, 5, "iron_helmet" },
-    { "Mage",       "A master of arcane forces and sorcery.",         -5, -5,  5, 15, 10,  0,  0, 0, 6, "" },
-    { "Rogue",      "An agile skirmisher relying on speed and luck.",    0,  0, 15,  0,  0, 10,  5, 1, 4, "" },
-    { "Barbarian",  "A ferocious warrior wielding heavy axes.",         15, 10,  5,-10, -5,  0,  5, 11, 5, "" },
-    { "Spellsword", "A versatile combatant blending blade and spell.",   5,  0,  5, 10,  5,  0,  0, 4, 6, "" },
-    { "Ranger",     "A sharp-eyed hunter and marksman.",                0,  5, 10,  0,  0, 15,  0, 14, 0, "" },
-    { "Paladin",    "A holy champion wielding hammers with fortitude.", 10,  5, -5,  0, 10,  5,  0, 10, 5, "iron_helmet" },
-    { "Crusader",   "A disciplined spearman built for dungeon delves.", 10,  5,  0,  5,  5,  0,  0, 7, 3, "" }
+        { "Knight",     "An armored defender trained in heavy arms.",       65, 55, 35, 25, 25, 35, 30, 3, 5, "iron_helmet",
+        { SKILL_BLUNT, SKILL_AXE, SKILL_LONG_BLADE, SKILL_HEAVY_ARMOR, SKILL_ATHLETICS },
+        { SKILL_BLOCK, SKILL_MEDIUM_ARMOR, SKILL_SPEECHCRAFT, SKILL_ACROBATICS, SKILL_RESTORATION } },
+    { "Mage",       "A master of arcane forces and sorcery.",           20, 25, 30, 75, 65, 30, 30, 0, 6, "",
+        { SKILL_DESTRUCTION, SKILL_ALTERATION, SKILL_MYSTICISM, SKILL_CONJURATION, SKILL_ALCHEMY },
+        { SKILL_ILLUSION, SKILL_RESTORATION, SKILL_ENCHANT, SKILL_UNARMORED, SKILL_SHORT_BLADE } },
+    { "Rogue",      "An agile skirmisher relying on speed and luck.",   30, 35, 60, 40, 25, 55, 40, 1, 4, "",
+        { SKILL_SHORT_BLADE, SKILL_SNEAK, SKILL_SECURITY, SKILL_ACROBATICS, SKILL_SPEECHCRAFT },
+        { SKILL_LIGHT_ARMOR, SKILL_MARKSMAN, SKILL_MERCANTILE, SKILL_ATHLETICS, SKILL_ILLUSION } },
+    { "Barbarian",  "A ferocious warrior wielding heavy axes.",         65, 60, 40, 20, 25, 25, 35, 11, 5, "",
+        { SKILL_AXE, SKILL_BLUNT, SKILL_ATHLETICS, SKILL_UNARMORED, SKILL_HAND_TO_HAND },
+        { SKILL_MEDIUM_ARMOR, SKILL_BLOCK, SKILL_ACROBATICS, SKILL_SPEAR, SKILL_MARKSMAN } },
+    { "Spellsword", "A versatile combatant blending blade and spell.",  45, 45, 35, 55, 45, 25, 30, 4, 6, "",
+        { SKILL_DESTRUCTION, SKILL_LONG_BLADE, SKILL_MEDIUM_ARMOR, SKILL_ALTERATION, SKILL_BLOCK },
+        { SKILL_RESTORATION, SKILL_CONJURATION, SKILL_ATHLETICS, SKILL_HEAVY_ARMOR, SKILL_MYSTICISM } },
+    { "Ranger",     "A sharp-eyed hunter and marksman.",                35, 45, 65, 30, 25, 25, 35, 14, 0, "",
+        { SKILL_MARKSMAN, SKILL_SNEAK, SKILL_LIGHT_ARMOR, SKILL_ATHLETICS, SKILL_SHORT_BLADE },
+        { SKILL_ACROBATICS, SKILL_LONG_BLADE, SKILL_ALCHEMY, SKILL_BLOCK, SKILL_RESTORATION } },
+    { "Paladin",    "A holy champion wielding hammers with fortitude.", 60, 55, 30, 25, 50, 35, 30, 10, 5, "iron_helmet",
+        { SKILL_BLUNT, SKILL_HEAVY_ARMOR, SKILL_RESTORATION, SKILL_BLOCK, SKILL_ATHLETICS },
+        { SKILL_LONG_BLADE, SKILL_MEDIUM_ARMOR, SKILL_SPEECHCRAFT, SKILL_MYSTICISM, SKILL_ARMORER } },
+    { "Crusader",   "A disciplined spearman built for dungeon delves.", 55, 55, 35, 30, 55, 35, 25, 7, 3, "",
+        { SKILL_SPEAR, SKILL_HEAVY_ARMOR, SKILL_RESTORATION, SKILL_BLOCK, SKILL_ATHLETICS },
+        { SKILL_BLUNT, SKILL_MEDIUM_ARMOR, SKILL_SPEECHCRAFT, SKILL_MYSTICISM, SKILL_CONJURATION } }
 };
 
 static const std::vector<BirthsignData> G_BIRTHSIGNS = {
@@ -38,6 +54,25 @@ static const std::vector<BirthsignData> G_BIRTHSIGNS = {
     { "The Shadow",   "+10 Perception, +5 Agility.",       0,  0,  5,  0,  0, 10,  0 }
 };
 
+static const int CLASS_ATTRIBUTE_VARIANCE = 5;
+static const int CREATION_ATTRIBUTE_MIN = 10;
+static const int CREATION_ATTRIBUTE_MAX = 75;
+
+// Class spread +/- variance, then race and birthsign mods, clamped to the creation range.
+static int RollAttribute(int classBase, int raceMod, int signMod)
+{
+    int variance = GetRandomValue(-CLASS_ATTRIBUTE_VARIANCE, CLASS_ATTRIBUTE_VARIANCE);
+    int value = classBase + variance + raceMod + signMod;
+    if (value < CREATION_ATTRIBUTE_MIN)
+    {
+        value = CREATION_ATTRIBUTE_MIN;
+    }
+    if (value > CREATION_ATTRIBUTE_MAX)
+    {
+        value = CREATION_ATTRIBUTE_MAX;
+    }
+    return value;
+}
 
 CharacterProfile GenerateRandomCharacter() {
     CharacterProfile profile;
@@ -48,25 +83,23 @@ CharacterProfile GenerateRandomCharacter() {
 
     const ClassData& cls = G_CLASSES[GetRandomValue(0, (int)G_CLASSES.size() - 1)];
     profile.className = cls.name;
+    profile.majorSkills = cls.majorSkills;
+    profile.minorSkills = cls.minorSkills;
 
     const BirthsignData& sign = G_BIRTHSIGNS[GetRandomValue(0, (int)G_BIRTHSIGNS.size() - 1)];
     profile.birthsign = sign.name;
 
-    int baseStr = GetRandomValue(25, 40);
-    int baseEnd = GetRandomValue(25, 40);
-    int baseAgi = GetRandomValue(25, 40);
-    int baseInt = GetRandomValue(25, 40);
-    int baseWil = GetRandomValue(25, 40);
-    int basePer = GetRandomValue(25, 40);
-    int baseLck = GetRandomValue(25, 40);
+    const RaceData& race = G_RACES[GetRandomValue(0, (int)G_RACES.size() - 1)];
+    profile.raceId = race.id;
+    profile.raceSkillBonuses = RollRaceSkillBonuses(race);
 
-    profile.str = std::max(10, baseStr + cls.strMod + sign.strMod);
-    profile.end = std::max(10, baseEnd + cls.endMod + sign.endMod);
-    profile.agi = std::max(10, baseAgi + cls.agiMod + sign.agiMod);
-    profile.intel = std::max(10, baseInt + cls.intelMod + sign.intelMod);
-    profile.wil = std::max(10, baseWil + cls.wilMod + sign.wilMod);
-    profile.per = std::max(10, basePer + cls.perMod + sign.perMod);
-    profile.lck = std::max(10, baseLck + cls.lckMod + sign.lckMod);
+    profile.str = RollAttribute(cls.baseStr, race.strMod, sign.strMod);
+    profile.end = RollAttribute(cls.baseEnd, race.endMod, sign.endMod);
+    profile.agi = RollAttribute(cls.baseAgi, race.agiMod, sign.agiMod);
+    profile.intel = RollAttribute(cls.baseIntel, race.intelMod, sign.intelMod);
+    profile.wil = RollAttribute(cls.baseWil, race.wilMod, sign.wilMod);
+    profile.per = RollAttribute(cls.basePer, race.perMod, sign.perMod);
+    profile.lck = RollAttribute(cls.baseLck, race.lckMod, sign.lckMod);
 
     profile.maxHp = profile.end / 5;
     profile.hp = profile.maxHp;

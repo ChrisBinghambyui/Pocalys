@@ -5,6 +5,7 @@
 #include "ItemData.h"
 #include "SkillData.h"
 
+
 struct SkillState {
     int level;
     int xp;
@@ -14,6 +15,7 @@ struct Player {
     std::string name;
     std::string className;
     std::string birthsign;
+    std::string raceId; // Key into G_RACES
 
     int x;
     int y;
@@ -48,6 +50,8 @@ struct Player {
     std::vector<Item> equippedRings;
 
     std::vector<SkillState> skills;
+    std::vector<int> majorSkills; // Skill ids. Start at 40.
+    std::vector<int> minorSkills; // Skill ids. Start at 25.
 
     // Active character unlocks
     std::vector<int> activeFeats;
@@ -69,6 +73,27 @@ struct Player {
 
     void initSkills(int baseLevel = 5) {
         skills.assign(G_SKILL_TYPES.size(), { baseLevel, 0 });
+    }
+
+    // Call after initSkills(). Raises major skills to 40 and minor skills to 25 (rulebook starting values).
+    void applySkillTiers()
+    {
+        for (size_t i = 0; i < majorSkills.size(); i++)
+        {
+            int id = majorSkills[i];
+            if (id >= 0 && id < (int)skills.size())
+            {
+                skills[id].level = 40;
+            }
+        }
+        for (size_t i = 0; i < minorSkills.size(); i++)
+        {
+            int id = minorSkills[i];
+            if (id >= 0 && id < (int)skills.size())
+            {
+                skills[id].level = 25;
+            }
+        }
     }
 
     int getXpForNextSkillLevel(int currentLevel) const {

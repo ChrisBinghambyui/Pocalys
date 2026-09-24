@@ -44,6 +44,70 @@ int CalculateScaledDamage(const EnemyArchetype& archetype, int current_floor)
     return archetype.base_damage + (floor_step * archetype.damage_growth);
 }
 
+const EnemyArchetype* FindEnemyArchetype(const std::string& id)
+{
+    for (size_t i = 0; i < G_ENEMY_ARCHETYPES.size(); i++)
+    {
+        if (G_ENEMY_ARCHETYPES[i].id == id)
+        {
+            return &G_ENEMY_ARCHETYPES[i];
+        }
+    }
+    return nullptr;
+}
+
+std::string GetEnemyDisplayName(const Enemy& enemy)
+{
+    const EnemyArchetype* archetype = FindEnemyArchetype(enemy.archetypeId);
+    if (archetype == nullptr)
+    {
+        return "creature";
+    }
+    return archetype->name;
+}
+
+const EnemyArchetype* PickSpawnArchetype(int current_floor)
+{
+    int totalWeight = 0;
+    for (size_t i = 0; i < G_SPAWN_RULES.size(); i++)
+    {
+        totalWeight += CalculateSpawnWeight(G_SPAWN_RULES[i], current_floor);
+    }
+
+    if (totalWeight <= 0)
+    {
+        return nullptr;
+    }
+
+    int roll = GetRandomValue(1, totalWeight);
+    for (size_t i = 0; i < G_SPAWN_RULES.size(); i++)
+    {
+        int weight = CalculateSpawnWeight(G_SPAWN_RULES[i], current_floor);
+        if (roll <= weight)
+        {
+            return FindEnemyArchetype(G_SPAWN_RULES[i].archetype_id);
+        }
+        roll -= weight;
+    }
+    return nullptr;
+}
+
+Enemy CreateEnemy(const EnemyArchetype& archetype, int floorNumber, int x, int y)
+{
+    Enemy enemy = Enemy(); // Value-initialized: attributes, stamina, mana start at 0 until archetypes carry that data
+    enemy.archetypeId = archetype.id;
+    enemy.spawnFloor = floorNumber;
+    enemy.x = x;
+    enemy.y = y;
+    enemy.maxHp = CalculateScaledHp(archetype, floorNumber);
+    enemy.hp = enemy.maxHp;
+    enemy.symbol = archetype.glyph;
+    enemy.color = archetype.color;
+    enemy.isDead = false;
+    enemy.inventory = GenerateEnemyLoadout(archetype);
+    return enemy;
+}
+
 
 std::vector<Item> GenerateEnemyLoadout(const EnemyArchetype& archetype)
 {

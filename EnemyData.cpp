@@ -18,7 +18,7 @@ std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
         "A hunched, twitching rodent wielding a rusty file. Smells of rot and damp copper.",
         ICON_RAT,
         12, 3, 3, 1, 0,
-        { 0 }, 0, 2, 1, 1 // Dagger only, wood/bone/flint tier scavenged junk
+        { 0 }, 0, 2, 1, 1, 'r', BROWN // Dagger only, wood/bone/flint tier scavenged junk
     },
     {
         "grave_mite",
@@ -26,7 +26,7 @@ std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
         "A chitinous carpet of biting insects that feeds on subterranean decay.",
         ICON_BUG,
         8, 2, 2, 1, 1,
-        {}, -1, -1, 0, 0 // Bites only, no gear
+        {}, -1, -1, 0, 0, 'm', DARKBROWN // Bites only, no gear
     },
     {
         "moldering_skeleton",
@@ -34,7 +34,7 @@ std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
         "Brittle bones held together by old grudge-magic. Clack-clacks rhythmically in the dark.",
         ICON_SKULL,
         18, 4, 5, 1, 1,
-        { 0, 1, 3, 5 }, 0, 4, 1, 1 // Dagger/Shortsword/Longsword/Mace, ancient grave-goods quality
+        { 0, 1, 3, 5 }, 0, 4, 1, 1, 's', RAYWHITE // Dagger/Shortsword/Longsword/Mace, ancient grave-goods quality
     },
     {
         "ironclad_beetle",
@@ -42,7 +42,7 @@ std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
         "A heavy subterranean beetle with a shell thick enough to turn broken blades.",
         ICON_SHIELD,
         30, 6, 4, 1, 4,
-        {}, -1, -1, 0, 0 // Natural carapace and mandibles only
+        {}, -1, -1, 0, 0, 'b', SKYBLUE // Natural carapace and mandibles only
     },
     {
         "ashwood_stalker",
@@ -50,7 +50,7 @@ std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
         "A gaunt, pale predator with elongated limbs built for leaping from cave ceilings.",
         ICON_BEAST,
         25, 5, 8, 2, 1,
-        {}, -1, -1, 0, 0 // Claws only
+        {}, -1, -1, 0, 0, 'a', LIGHTGRAY // Claws only
     },
     {
         "bog_witch",
@@ -58,7 +58,7 @@ std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
         "A muttering recluse steeped in stagnant mire water, tossing corrosive hexes.",
         ICON_MAGIC,
         22, 4, 7, 2, 0,
-        { 5 }, 2, 5, 1, 1 // Gnarled mace-staff, bronze through steel tier
+        { 5 }, 2, 5, 1, 1, 'w', PURPLE // Gnarled mace-staff, flint through iron tier
     },
     {
         "rust_golem",
@@ -66,7 +66,7 @@ std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
         "An abandoned mining engine reanimated by iron-eating lichen and residual arcane heat.",
         ICON_ANVIL,
         45, 8, 10, 2, 5,
-        {}, -1, -1, 0, 0 // Fists and machinery, no carried weapon
+        {}, -1, -1, 0, 0, 'G', ORANGE // Fists and machinery, no carried weapon
     },
     {
         "void_gazer",
@@ -74,7 +74,7 @@ std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
         "A floating mass of unblinking eyes that distorts lighting and drains resolve.",
         ICON_EYE,
         35, 7, 12, 3, 2,
-        {}, -1, -1, 0, 0 // No hands to hold anything
+        {}, -1, -1, 0, 0, 'e', VIOLET // No hands to hold anything
     },
     {
         "dread_warden",
@@ -82,7 +82,7 @@ std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
         "An ancient armored sentry whose blade drags against the flagstones with a shrieking sparks.",
         ICON_SWORD,
         60, 10, 14, 3, 6,
-        { 3, 9 }, 8, 14, 1, 2 // Longsword/Greatsword, Silver through Duskglass quality, sometimes dual
+        { 3, 9 }, 8, 14, 1, 2, 'W', RED // Longsword/Greatsword, Silver through Duskglass quality, sometimes dual
     }
 };
 

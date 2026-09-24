@@ -133,8 +133,10 @@
     <ClCompile Include="FeatData.cpp" />
     <ClCompile Include="ItemData.cpp" />
     <ClCompile Include="MaterialData.cpp" />
+    <ClCompile Include="RaceData.cpp" />
     <ClCompile Include="Rogue-Project.cpp" />
     <ClCompile Include="SkillData.cpp" />
+    <ClCompile Include="TitleScreen.cpp" />
     <ClCompile Include="WeaponData.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -154,7 +156,9 @@
     <ClInclude Include="ItemData.h" />
     <ClInclude Include="MaterialData.h" />
     <ClInclude Include="Player.h" />
+    <ClInclude Include="RaceData.h" />
     <ClInclude Include="SkillData.h" />
+    <ClInclude Include="TitleScreen.h" />
     <ClInclude Include="WeaponData.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

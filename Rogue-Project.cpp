@@ -11,6 +11,9 @@
 #include "MaterialData.h"
 #include "ItemData.h"
 #include "CharacterGenerator.h"
+#include "TitleScreen.h"
+#include "EnemyFactory.h"
+#include "FeatData.h"
 #include <string>
 
 const int MAP_WIDTH = 80;
@@ -23,21 +26,6 @@ enum GameState {
     STATE_GAMEPLAY
 };
 
-enum TitleTheme {
-    THEME_FIRE,
-    THEME_RAIN,
-    THEME_ICE,
-    THEME_ELECTRIC,
-    THEME_COUNT
-};
-
-const std::vector<std::string> G_TITLE_BANNER = {
-    " ____    ____    ____     _     _    __   __ _____  ",
-    "|  _ \\  / __ \\  / ___|   / \\   | |   \\ \\ / // ___| ",
-    "| |_) || |  | || |      / _ \\  | |    \\ V / \\___ \\ ",
-    "|  __/ | |__| || |___  / ___ \\ | |___  | |   ___) |",
-    "|_|     \\____/  \\____|/_/   \\_\\|_____| |_|  |____/  "
-};
 
 // --- FLOOR WIPE TRANSITION ---
 void PerformFloorTransition(bool isDescending) {
@@ -70,152 +58,9 @@ void PerformFloorTransition(bool isDescending) {
     }
 }
 
-// --- FIRE ANIMATION ---
-Color GetFireColor(int intensity) {
-    if (intensity <= 0) return BLACK;
-    if (intensity < 7)  return Color{ 70, 10, 15, 255 };
-    if (intensity < 14) return Color{ 170, 30, 10, 255 };
-    if (intensity < 21) return Color{ 230, 90, 10, 255 };
-    if (intensity < 28) return Color{ 245, 190, 20, 255 };
-    return Color{ 255, 240, 200, 255 };
-}
-
-char GetFireChar(int intensity) {
-    const char fireRamp[] = " .:-=+*#%@";
-    int idx = std::min(9, std::max(0, (intensity * 10) / 36));
-    return fireRamp[idx];
-}
-
-void UpdateFire(std::vector<int>& fireGrid, int width, int height) {
-    for (int x = 0; x < width; x++) {
-        fireGrid[(height - 1) * width + x] = (GetRandomValue(0, 3) == 0) ? 0 : 35;
-    }
-    for (int y = 1; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int srcIndex = y * width + x;
-            int srcValue = fireGrid[srcIndex];
-            if (srcValue == 0) {
-                fireGrid[(y - 1) * width + x] = 0;
-            }
-            else {
-                int randX = GetRandomValue(-1, 1);
-                int decay = GetRandomValue(0, 2);
-                int dstX = std::max(0, std::min(width - 1, x + randX));
-                int dstY = y - 1;
-                fireGrid[dstY * width + dstX] = std::max(0, srcValue - decay);
-            }
-        }
-    }
-}
-
-// Directionally weighted edge detection (Outward gradient from banner center)
-// Restricts lightning source pixels to the upper portion of the banner
-bool IsValidLightningSource(int x, int y, int startY, int bannerH)
-{
-    int relativeY = y - startY;
-    if (relativeY <= 1)
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-    //int relativeY = y - startY;
-    //return relativeY <= (int)(bannerH * 0.6f); // Only fire from top 60% of banner
-}
-
-// Maps source position relative to banner center out to top/side screen edges
-Vector2 GetRadialScreenEdge(Vector2 point, Vector2 bannerCenter, int gridW, int gridH) {
-    float dx = point.x - bannerCenter.x;
-    float dy = point.y - bannerCenter.y;
-
-    // Angle in radians relative to center (-PI to PI, where -PI/2 is straight up)
-    float angle = atan2f(dy, dx);
-
-    // Left Screen Edge (Angle roughly between -180° and -135°)
-    if (angle < -0.75f * PI) {
-        float normY = (angle + PI) / (0.25f * PI); // 0.0 to 1.0 down left edge
-        return { 0.0f, std::min((float)gridH - 1.0f, (gridH * 0.4f) * normY) };
-    }
-    // Right Screen Edge (Angle roughly between -45° and 0°)
-    else if (angle > -0.25f * PI) {
-        float normY = std::abs(angle) / (0.25f * PI); // 0.0 to 1.0 down right edge
-        return { (float)(gridW - 1), std::min((float)gridH - 1.0f, (gridH * 0.4f) * normY) };
-    }
-    // Top Edge Arc (-135° to -45°)
-    else {
-        // Interpolate across top boundary from far-left to far-right
-        float t = (angle + 0.75f * PI) / (0.50f * PI); // 0.0 (left side) to 1.0 (right side)
-        return { t * (gridW - 1), 0.0f };
-    }
-}
-
-// --- ASCII LIGHTNING RENDERER ---
-void DrawASCIILine(Vector2 startGrid, Vector2 endGrid, float cellW, float cellH, Color color, int maxJitter = 1) {
-    int x0 = (int)startGrid.x;
-    int y0 = (int)startGrid.y;
-    int x1 = (int)endGrid.x;
-    int y1 = (int)endGrid.y;
-
-    int dx = std::abs(x1 - x0);
-    int dy = std::abs(y1 - y0);
-    int sx = (x0 < x1) ? 1 : -1;
-    int sy = (y0 < y1) ? 1 : -1;
-    int err = dx - dy;
-
-    int currX = x0;
-    int currY = y0;
-
-    while (true) {
-        int jitterX = (maxJitter > 0) ? GetRandomValue(-maxJitter, maxJitter) : 0;
-        int jitterY = (maxJitter > 0) ? GetRandomValue(-maxJitter, maxJitter) : 0;
-
-        int drawX = currX + jitterX;
-        int drawY = currY + jitterY;
-
-        char charToDraw = '*';
-        if (dx > dy * 2) charToDraw = '-';
-        else if (dy > dx * 2) charToDraw = '|';
-        else if ((sx > 0 && sy > 0) || (sx < 0 && sy < 0)) charToDraw = '\\';
-        else charToDraw = '/';
-
-        if (GetRandomValue(0, 5) == 0) charToDraw = '+';
-
-        char str[2] = { charToDraw, '\0' };
-        DrawText(str, (int)(drawX * cellW), (int)(drawY * cellH), (int)cellH, color);
-
-        if (currX == x1 && currY == y1) break;
-        int e2 = 2 * err;
-        if (e2 > -dy) { err -= dy; currX += sx; }
-        if (e2 < dx) { err += dx; currY += sy; }
-    }
-}
-
-void DrawSustainedASCIILightning(Vector2 startGrid, Vector2 endGrid, float cellW, float cellH, Color mainCol, Color subCol, int gridW, int gridH) {
-    Vector2 midGrid = {
-        (startGrid.x + endGrid.x) * 0.5f + GetRandomValue(-2, 2),
-        (startGrid.y + endGrid.y) * 0.5f + GetRandomValue(-2, 2)
-    };
-
-    DrawASCIILine(startGrid, midGrid, cellW, cellH, mainCol, 0);
-    DrawASCIILine(midGrid, endGrid, cellW, cellH, mainCol, 0);
-
-    if (GetRandomValue(0, 1) == 0) {
-        Vector2 subArcTarget = {
-            endGrid.x + GetRandomValue(-6, 6),
-            endGrid.y + GetRandomValue(-6, 6)
-        };
-        subArcTarget.x = std::max(0.0f, std::min((float)(gridW - 1), subArcTarget.x));
-        subArcTarget.y = std::max(0.0f, std::min((float)(gridH - 1), subArcTarget.y));
-
-        DrawASCIILine(endGrid, subArcTarget, cellW, cellH, subCol, 1);
-    }
-}
 
 std::string GetEnemyName(const Enemy& enemy) {
-    if (enemy.symbol == 'g') return "goblin";
-    return "creature";
+    return GetEnemyDisplayName(enemy);
 }
 
 std::string GetGroundItemName(const Item& item) {
@@ -234,7 +79,7 @@ std::string GetGroundItemName(const Item& item) {
     return "item";
 }
 
-void GenerateFloor(TileType map[MAP_WIDTH][MAP_HEIGHT], bool explored[MAP_WIDTH][MAP_HEIGHT], std::vector<Room>& rooms, Player& player, std::vector<Enemy>& enemies) {
+void GenerateFloor(TileType map[MAP_WIDTH][MAP_HEIGHT], bool explored[MAP_WIDTH][MAP_HEIGHT], std::vector<Room>& rooms, Player& player, std::vector<Enemy>& enemies, int floorNumber) {
     rooms.clear();
     for (int x = 0; x < MAP_WIDTH; x++) {
         for (int y = 0; y < MAP_HEIGHT; y++) {
@@ -281,20 +126,17 @@ void GenerateFloor(TileType map[MAP_WIDTH][MAP_HEIGHT], bool explored[MAP_WIDTH]
 
     enemies.clear();
     for (size_t i = 1; i < rooms.size(); i++) {
-        Enemy goblin;
-        goblin.x = rooms[i].x + rooms[i].width / 2;
-        goblin.y = rooms[i].y + rooms[i].height / 2;
-        goblin.str = 30; goblin.end = 35; goblin.agi = 45;
-        goblin.intel = 20; goblin.wil = 20; goblin.per = 15; goblin.lck = 20;
-        goblin.maxHp = goblin.end / 5; goblin.hp = goblin.maxHp;
-        goblin.maxMana = goblin.intel / 5; goblin.mana = goblin.maxMana;
-        goblin.maxStamina = (goblin.end + goblin.str + goblin.agi + 40) / 10; goblin.stamina = goblin.maxStamina;
-        goblin.symbol = 'g'; goblin.color = GREEN; goblin.isDead = false;
-        enemies.push_back(goblin);
+        const EnemyArchetype* archetype = PickSpawnArchetype(floorNumber);
+        if (archetype == nullptr)
+        {
+            continue;
+        }
+        enemies.push_back(CreateEnemy(*archetype, floorNumber, rooms[i].centerX(), rooms[i].centerY()));
     }
 }
 
 void ApplyProfileToPlayer(const CharacterProfile& profile, Player& player) {
+    player = Player(); // Wipes level, progress, feats, boons, skills, amulets, rings from any previous run
     player.name = profile.name;
     player.className = profile.className;
     player.birthsign = profile.birthsign;
@@ -306,108 +148,39 @@ void ApplyProfileToPlayer(const CharacterProfile& profile, Player& player) {
     player.inventory = profile.inventory;
     for (int i = 0; i < SLOT_SINGLE_COUNT; i++) player.equippedSlots[i] = profile.equippedSlots[i];
     player.equippedAmulets.clear(); player.equippedRings.clear();
-}
 
+    player.initSkills();
+    player.majorSkills = profile.majorSkills;
+    player.minorSkills = profile.minorSkills;
+    player.applySkillTiers();
 
-struct Snowflake {
-    float x, y;
-    float speed;
-    char symbol;
-    Color color;
-};
-
-// Cascades snow along banner top edges and slides excess snow off cliff edges
-void UpdateSnowPhysics(
-    std::vector<int>& snowGrid,
-    std::vector<Snowflake>& snowflakes,
-    int gridW,
-    int gridH,
-    int startX,
-    int startY,
-    int bannerW,
-    int bannerH,
-    const std::vector<std::string>& banner
-) {
-    auto IsPixel = [&](int x, int y) {
-        int bx = x - startX, by = y - startY;
-        return (by >= 0 && by < bannerH && bx >= 0 && bx < bannerW && banner[by][bx] != ' ');
-        };
-
-    auto IsTopEdge = [&](int x, int y) {
-        if (!IsPixel(x, y)) return false;
-        return !IsPixel(x, y - 1);
-        };
-
-    for (int y = 0; y < gridH; y++) {
-        for (int x = 0; x < gridW; x++) {
-            int idx = y * gridW + x;
-            if (snowGrid[idx] <= 0) continue;
-
-            // Clear any accumulation that isn't on a top edge tile
-            if (!IsTopEdge(x, y)) {
-                snowGrid[idx] = 0;
-                continue;
+    // Racial bonuses apply after class tiers, so a SET bonus overrides whatever the class gave
+    player.raceId = profile.raceId;
+    for (size_t i = 0; i < profile.raceSkillBonuses.size(); i++)
+    {
+        const SkillBonus& bonus = profile.raceSkillBonuses[i];
+        if (bonus.skillId >= 0 && bonus.skillId < (int)player.skills.size())
+        {
+            if (bonus.mode == SKILL_BONUS_SET)
+            {
+                player.skills[bonus.skillId].level = bonus.amount;
             }
-
-            int dir = (GetRandomValue(0, 1) == 0) ? -1 : 1;
-            for (int i = 0; i < 2; i++, dir = -dir) {
-                int nx = x + dir;
-                if (nx < 0 || nx >= gridW) continue;
-
-                int ny = -1;
-                if (IsTopEdge(nx, y)) ny = y;
-                else if (IsTopEdge(nx, y + 1)) ny = y + 1;
-                else if (IsTopEdge(nx, y - 1)) ny = y - 1;
-
-                if (ny != -1) {
-                    // Balance mound height between adjacent top edges
-                    int nIdx = ny * gridW + nx;
-                    if (snowGrid[idx] > snowGrid[nIdx] + 1) {
-                        snowGrid[idx]--;
-                        snowGrid[nIdx]++;
-                        break;
-                    }
-                }
-                else {
-                    // Edge of letter / cliff: slide snow off into free fall
-                    if (snowGrid[idx] > 2 && GetRandomValue(0, 3) == 0) {
-                        snowGrid[idx]--;
-                        for (auto& flake : snowflakes) {
-                            if (flake.y <= 0 || flake.y >= gridH - 1) {
-                                flake.x = (float)nx;
-                                flake.y = (float)y;
-                                flake.speed = (float)GetRandomValue(3, 7) / 10.0f;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                }
+            else
+            {
+                player.skills[bonus.skillId].level += bonus.amount;
             }
         }
     }
-}
 
-// Cascades snow across adjacent pixels when height difference > 1
-void UpdateSnowPhysics(std::vector<int>& snowGrid, int gridW, int gridH) {
-    for (int y = 0; y < gridH; y++) {
-        for (int x = 0; x < gridW; x++) {
-            int idx = y * gridW + x;
-            if (snowGrid[idx] <= 1) continue;
-
-            // Check if left neighbor has space
-            if (x > 0 && snowGrid[idx] > snowGrid[y * gridW + (x - 1)] + 1) {
-                snowGrid[idx]--;
-                snowGrid[y * gridW + (x - 1)]++;
-            }
-            // Check if right neighbor has space
-            else if (x < gridW - 1 && snowGrid[idx] > snowGrid[y * gridW + (x + 1)] + 1) {
-                snowGrid[idx]--;
-                snowGrid[y * gridW + (x + 1)]++;
-            }
-        }
+    // Innate racial ability, granted as a feat
+    const RaceData* race = FindRace(profile.raceId);
+    if (race != nullptr)
+    {
+        player.activeFeats.push_back(race->racialFeatId);
     }
 }
+
+
 
 int main()
 {
@@ -422,6 +195,7 @@ int main()
     SetExitKey(KEY_NULL);
     ToggleBorderlessWindowed();
     SetTargetFPS(60);
+    InitTitleScreen();
 
     TileType map[MAP_WIDTH][MAP_HEIGHT];
     bool explored[MAP_WIDTH][MAP_HEIGHT] = { false };
@@ -438,66 +212,9 @@ int main()
 
     Player player;
     GameState currentState = STATE_TITLE;
-    int titleMenuSelection = 0;
-
-    TitleTheme currentTitleTheme = (TitleTheme)GetRandomValue(0, THEME_COUNT - 1);
 
     std::vector<CharacterProfile> tavernCandidates;
     int selectedCandidate = 0;
-
-    const int GRID_W = 90; const int GRID_H = 45;
-    std::vector<int> fireGrid(GRID_W * GRID_H, 0);
-
-    // Raindrops
-    struct RainDrop {
-        float x, y;
-        float speed;
-        int impactTimer;
-    };
-    std::vector<RainDrop> rainDrops(60);
-    for (auto& drop : rainDrops) {
-        drop.x = (float)GetRandomValue(0, GRID_W - 1);
-        drop.y = (float)GetRandomValue(0, GRID_H - 1);
-        drop.speed = (float)GetRandomValue(12, 20) / 10.0f;
-        drop.impactTimer = 0;
-    }
-
-    // Snowflakes (struct definition moved above UpdateSnowPhysics)
-    std::vector<Snowflake> snowflakes(50);
-    const char flakeChars[] = "*+.o#";
-    for (auto& flake : snowflakes) {
-        flake.x = (float)GetRandomValue(0, GRID_W - 1);
-        flake.y = (float)GetRandomValue(0, GRID_H - 1);
-        flake.speed = (float)GetRandomValue(2, 6) / 10.0f;
-        flake.symbol = flakeChars[GetRandomValue(0, 4)];
-        flake.color = (GetRandomValue(0, 1) == 0) ? SKYBLUE : RAYWHITE;
-    }
-    std::vector<int> snowAccumulation(GRID_W * GRID_H, 0);
-
-    // Electric Arc Particles
-    struct ElectricParticle {
-        float x, y;
-        float vx, vy;
-        float alpha;
-        char symbol;
-    };
-    std::vector<ElectricParticle> arcParticles(35);
-    const char sparkChars[] = "*+~:-";
-    for (auto& p : arcParticles) {
-        p.x = (float)GetRandomValue(0, GRID_W - 1);
-        p.y = (float)GetRandomValue(0, GRID_H - 1);
-        p.vx = (float)GetRandomValue(-8, 8) / 10.0f;
-        p.vy = (float)GetRandomValue(-8, 8) / 10.0f;
-        p.alpha = (float)GetRandomValue(30, 100) / 100.0f;
-        p.symbol = sparkChars[GetRandomValue(0, 4)];
-    }
-
-    float electricCycleTimer = 0.0f;
-    struct LightningAnchor {
-        Vector2 start;
-        Vector2 end;
-    };
-    std::vector<LightningAnchor> persistentAnchors;
 
     bool enableFog = true;
     bool showInventory = false;
@@ -513,312 +230,25 @@ int main()
     bool keepRunning = true;
     while (keepRunning && !WindowShouldClose())
     {
-        float frameDt = GetFrameTime();
-        UpdateFire(fireGrid, GRID_W, GRID_H);
 
         // --- TITLE STATE ---
         if (currentState == STATE_TITLE)
         {
-            if (IsKeyPressed(KEY_T)) {
-                currentTitleTheme = (TitleTheme)((currentTitleTheme + 1) % THEME_COUNT);
-                electricCycleTimer = 0.0f;
-                persistentAnchors.clear();
-                std::fill(snowAccumulation.begin(), snowAccumulation.end(), 0);
+            TitleAction titleAction = UpdateAndDrawTitleScreen();
+            if (titleAction == TITLE_ACTION_NEW_GAME)
+            {
+                tavernCandidates = GenerateTavernCandidates(6);
+                selectedCandidate = 0;
+                currentState = STATE_TAVERN;
             }
-
-            const int titleOptionCount = 3;
-            if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
-                titleMenuSelection--;
-                if (titleMenuSelection < 0) titleMenuSelection = titleOptionCount - 1;
+            else if (titleAction == TITLE_ACTION_OPTIONS)
+            {
+                actionMessage = "Options coming soon!";
             }
-            if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
-                titleMenuSelection++;
-                if (titleMenuSelection >= titleOptionCount) titleMenuSelection = 0;
+            else if (titleAction == TITLE_ACTION_QUIT)
+            {
+                keepRunning = false;
             }
-
-            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_E)) {
-                if (titleMenuSelection == 0) {
-                    tavernCandidates = GenerateTavernCandidates(6);
-                    selectedCandidate = 0;
-                    currentState = STATE_TAVERN;
-                }
-                else if (titleMenuSelection == 1) {
-                    actionMessage = "Options coming soon!";
-                }
-                else if (titleMenuSelection == 2) {
-                    keepRunning = false;
-                }
-            }
-
-            BeginDrawing();
-            ClearBackground(BLACK);
-            float cellW = (float)GetScreenWidth() / GRID_W;
-            float cellH = (float)GetScreenHeight() / GRID_H;
-            int bannerW = (int)G_TITLE_BANNER[0].length();
-            int bannerH = (int)G_TITLE_BANNER.size();
-            int startX = (GRID_W - bannerW) / 2;
-            int startY = 10;
-
-            Vector2 bannerCenter = { startX + bannerW * 0.5f, startY + bannerH * 0.5f };
-
-            auto IsBannerPixel = [&](int x, int y) {
-                int bx = x - startX, by = y - startY;
-                if (by < 0 || by >= bannerH) return false;
-                if (bx < 0 || bx >= (int)G_TITLE_BANNER[by].length()) return false; // Check against row's real length
-                return G_TITLE_BANNER[by][bx] != ' ';
-                };
-
-            auto IsBannerRoofPixel = [&](int x, int y) {
-                if (!IsBannerPixel(x, y))
-                {
-                    return false;
-                }
-                for (int checkY = 0; checkY < y; checkY++)
-                {
-                    if (IsBannerPixel(x, checkY))
-                    {
-                        return false;
-                    }
-                }
-                return true;
-                };
-
-            std::vector<Vector2> bannerPixels;
-            if (currentTitleTheme == THEME_ELECTRIC) {
-                for (int y = 0; y < GRID_H; y++) {
-                    for (int x = 0; x < GRID_W; x++) {
-                        if (IsBannerPixel(x, y) && IsValidLightningSource(x, y, startY, bannerH)) {
-                            bannerPixels.push_back({ (float)x, (float)y });
-                        }
-                    }
-                }
-            }
-
-            // RENDER SELECTED ANIMATION THEME
-            if (currentTitleTheme == THEME_FIRE) {
-                for (int y = 0; y < GRID_H; y++) {
-                    for (int x = 0; x < GRID_W; x++) {
-                        int intensity = fireGrid[y * GRID_W + x];
-                        if (IsBannerPixel(x, y)) {
-                            int bx = x - startX, by = y - startY;
-                            char c = G_TITLE_BANNER[by][bx]; char str[2] = { c, '\0' };
-                            Color dimmedFire = GetFireColor(intensity / 3.5f);
-                            DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, (intensity > 0) ? dimmedFire : Color{ 55, 35, 40, 255 });
-                        }
-                        else if (intensity > 0) {
-                            Color fireColor = GetFireColor(intensity);
-                            char c = GetFireChar(intensity); char str[2] = { c, '\0' };
-                            DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, fireColor);
-                        }
-                    }
-                }
-            }
-            else if (currentTitleTheme == THEME_RAIN) {
-                for (auto& drop : rainDrops) {
-                    if (drop.impactTimer > 0) {
-                        drop.impactTimer--;
-                        if (drop.impactTimer <= 0) {
-                            drop.y = 0;
-                            drop.x = (float)GetRandomValue(0, GRID_W - 1);
-                        }
-                        continue;
-                    }
-
-                    drop.y += drop.speed;
-                    drop.x += 0.35f;
-                    if (drop.x >= GRID_W)
-                    {
-                        drop.x -= GRID_W;
-                    }
-                    if (drop.x < 0)
-                    {
-                        drop.x += GRID_W;
-                    }
-                    int currX = (int)drop.x;
-                    int currY = (int)drop.y;
-
-                    if (IsBannerRoofPixel(currX, currY))
-                    {
-                        drop.y = (float)currY;
-                        drop.impactTimer = 4;
-                    }
-                    else if (drop.y >= GRID_H)
-                    {
-                        drop.y = 0;
-                        drop.x = (float)GetRandomValue(0, GRID_W - 1);
-                    }
-                }
-
-                for (const auto& drop : rainDrops) {
-                    int dx = (int)drop.x;
-                    int dy = (int)drop.y;
-                    if (drop.impactTimer > 0) {
-                        DrawText("o", (int)(dx * cellW), (int)(dy * cellH - cellH * 0.5f), (int)cellH, WHITE);
-                    }
-                    else if (!IsBannerPixel(dx, dy))
-                    {
-                        DrawText("/", (int)(dx * cellW), (int)(dy * cellH), (int)cellH, Color{ 100, 160, 240, 180 });
-                    }
-                }
-
-                for (int y = 0; y < GRID_H; y++) {
-                    for (int x = 0; x < GRID_W; x++) {
-                        if (IsBannerPixel(x, y)) {
-                            int bx = x - startX, by = y - startY;
-                            char c = G_TITLE_BANNER[by][bx]; char str[2] = { c, '\0' };
-                            DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, SKYBLUE);
-                        }
-                    }
-                }
-            }
-            else if (currentTitleTheme == THEME_ICE) {
-                UpdateSnowPhysics(snowAccumulation, snowflakes, GRID_W, GRID_H, startX, startY, bannerW, bannerH, G_TITLE_BANNER);
-
-                for (auto& flake : snowflakes) {
-                    flake.y += flake.speed;
-                    int fx = (int)flake.x;
-                    int fy = (int)flake.y;
-
-                    if (IsBannerRoofPixel(fx, fy))
-                    {
-                        int gridIdx = fy * GRID_W + fx;
-                        if (gridIdx >= 0 && gridIdx < GRID_W * GRID_H) {
-                            if (snowAccumulation[gridIdx] < 6) {
-                                snowAccumulation[gridIdx]++;
-                                flake.y = 0;
-                                flake.x = (float)GetRandomValue(0, GRID_W - 1);
-                            }
-                        }
-                    }
-                    else if (flake.y >= GRID_H) {
-                        flake.y = 0;
-                        flake.x = (float)GetRandomValue(0, GRID_W - 1);
-                    }
-                }
-
-                for (const auto& flake : snowflakes) {
-                    int fx = (int)flake.x;
-                    int fy = (int)flake.y;
-                    if (!IsBannerPixel(fx, fy)) {
-                        char str[2] = { flake.symbol, '\0' };
-                        DrawText(str, (int)(fx * cellW), (int)(fy * cellH), (int)cellH, flake.color);
-                    }
-                }
-
-                for (int y = 0; y < GRID_H; y++) {
-                    for (int x = 0; x < GRID_W; x++) {
-                        int gridIdx = y * GRID_W + x;
-                        if (IsBannerPixel(x, y)) {
-                            int bx = x - startX, by = y - startY;
-                            char c = G_TITLE_BANNER[by][bx]; char str[2] = { c, '\0' };
-                            DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, Color{ 200, 230, 255, 255 });
-                        }
-                        if (snowAccumulation[gridIdx] > 0) {
-                            const char snowChars[] = "._-:=+*#";
-                            int stackLevel = std::min(7, snowAccumulation[gridIdx] - 1);
-                            char str[2] = { snowChars[stackLevel], '\0' };
-                            DrawText(str, (int)(x * cellW), (int)((y - 0.4f) * cellH), (int)cellH, RAYWHITE);
-                        }
-                    }
-                }
-            }
-            else if (currentTitleTheme == THEME_ELECTRIC) {
-                float prevTimer = electricCycleTimer;
-                electricCycleTimer += frameDt;
-                if (electricCycleTimer > 5.0f) electricCycleTimer -= 5.0f;
-
-                bool isCharging = (electricCycleTimer >= 3.2f && electricCycleTimer < 4.2f);
-                bool isBursting = (electricCycleTimer >= 4.2f && electricCycleTimer < 4.8f);
-
-                if (prevTimer < 4.2f && isBursting && !bannerPixels.empty()) {
-                    persistentAnchors.clear();
-                    for (int a = 0; a < 5; a++) {
-                        int idxA = GetRandomValue(0, (int)bannerPixels.size() - 1);
-                        Vector2 pA = bannerPixels[idxA];
-                        Vector2 pB = GetRadialScreenEdge(pA, bannerCenter, GRID_W, GRID_H);
-
-                        persistentAnchors.push_back({ pA, pB });
-                    }
-                }
-                else if (!isBursting) {
-                    persistentAnchors.clear();
-                }
-
-                for (auto& p : arcParticles) {
-                    p.x += p.vx; p.y += p.vy;
-                    if (p.x < 0 || p.x >= GRID_W) p.vx *= -1;
-                    if (p.y < 0 || p.y >= GRID_H) p.vy *= -1;
-                    int px = (int)p.x; int py = (int)p.y;
-                    if (!IsBannerPixel(px, py)) {
-                        char str[2] = { p.symbol, '\0' };
-                        Color pCol = (GetRandomValue(0, 1) == 0) ? Color{ 120, 60, 220, (unsigned char)(p.alpha * 150) } : Color{ 60, 180, 240, (unsigned char)(p.alpha * 150) };
-                        DrawText(str, (int)(px * cellW), (int)(py * cellH), (int)cellH, pCol);
-                    }
-                }
-
-                for (int y = 0; y < GRID_H; y++) {
-                    for (int x = 0; x < GRID_W; x++) {
-                        if (IsBannerPixel(x, y)) {
-                            int bx = x - startX, by = y - startY;
-                            char c = G_TITLE_BANNER[by][bx]; char str[2] = { c, '\0' };
-
-                            Color bannerCol = Color{ 80, 180, 255, 255 };
-                            if (isCharging) {
-                                bannerCol = (GetRandomValue(0, 1) == 0) ? Color{ 160, 230, 255, 255 } : WHITE;
-                            }
-                            else if (isBursting) {
-                                bannerCol = (GetRandomValue(0, 3) == 0) ? RAYWHITE : SKYBLUE;
-                            }
-
-                            DrawText(str, (int)(x * cellW), (int)(y * cellH), (int)cellH, bannerCol);
-                        }
-                    }
-                }
-
-                if (isBursting && !persistentAnchors.empty()) {
-                    for (const auto& anchor : persistentAnchors) {
-                        DrawSustainedASCIILightning(anchor.start, anchor.end, cellW, cellH, RAYWHITE, PURPLE, GRID_W, GRID_H);
-                    }
-                }
-                else if (!bannerPixels.empty()) {
-                    int idleBolts = isCharging ? 2 : 1;
-                    for (int i = 0; i < idleBolts; i++) {
-                        int idxA = GetRandomValue(0, (int)bannerPixels.size() - 1);
-                        int idxB = GetRandomValue(0, (int)bannerPixels.size() - 1);
-                        Color mainCol = isCharging ? WHITE : SKYBLUE;
-                        DrawSustainedASCIILightning(bannerPixels[idxA], bannerPixels[idxB], cellW, cellH, mainCol, Color{ 60, 120, 240, 200 }, GRID_W, GRID_H);
-                    }
-                }
-            }
-
-            int menuX = GetScreenWidth() / 2 - 100;
-            int menuY = GetScreenHeight() / 2 + 80;
-            const char* options[] = { "New Game", "Options", "Quit Game" };
-            Vector2 mousePos = GetMousePosition();
-
-            for (int i = 0; i < titleOptionCount; i++) {
-                int optY = menuY + i * 40;
-                Rectangle optRect = { (float)menuX - 20, (float)optY, 240, 35 };
-
-                if (CheckCollisionPointRec(mousePos, optRect)) {
-                    titleMenuSelection = i;
-                    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                        if (i == 0) {
-                            tavernCandidates = GenerateTavernCandidates(6);
-                            selectedCandidate = 0;
-                            currentState = STATE_TAVERN;
-                        }
-                        else if (i == 1) actionMessage = "Options coming soon!";
-                        else if (i == 2) keepRunning = false;
-                    }
-                }
-
-                Color col = (i == titleMenuSelection) ? YELLOW : WHITE;
-                if (i == titleMenuSelection) DrawText(">", menuX - 20, optY, 24, YELLOW);
-                DrawText(options[i], menuX, optY, 24, col);
-            }
-
-            EndDrawing();
             continue;
         }
 
@@ -891,7 +321,42 @@ int main()
                 if (!cand.equippedSlots[SLOT_MAIN_HAND].IsEmpty()) {
                     mainHand = GetGroundItemName(cand.equippedSlots[SLOT_MAIN_HAND]);
                 }
-                DrawText(TextFormat("Gear: %s", mainHand.c_str()), cx + 12, cy + 118, 13, SKYBLUE);
+
+                const RaceData* candRace = FindRace(cand.raceId);
+                if (candRace != nullptr)
+                {
+                    DrawText(TextFormat("Race: %s", candRace->name.c_str()), cx + 12, cy + 140, 14, VIOLET);
+                }
+            }
+
+            // Detail panel for the highlighted patron (mouse hover or keyboard selection)
+            if (selectedCandidate >= 0 && selectedCandidate < (int)tavernCandidates.size())
+            {
+                const CharacterProfile& sel = tavernCandidates[selectedCandidate];
+                const RaceData* selRace = FindRace(sel.raceId);
+                int panelX = startX;
+                int panelY = startY + 2 * (cardH + marginY) + 5;
+                int panelW = cardW * 3 + marginX * 2;
+                int panelH = 140;
+
+                DrawRectangle(panelX, panelY, panelW, panelH, Color{ 28, 22, 24, 255 });
+                DrawRectangleLinesEx(Rectangle{ (float)panelX, (float)panelY, (float)panelW, (float)panelH }, 1.0f, GOLD);
+
+                if (selRace != nullptr)
+                {
+                    DrawText(("RACE: " + selRace->name).c_str(), panelX + 15, panelY + 12, 18, VIOLET);
+                    DrawText(selRace->description.c_str(), panelX + 15, panelY + 36, 14, LIGHTGRAY);
+
+                    const Feat* racialFeat = FindFeat(selRace->racialFeatId);
+                    if (racialFeat != nullptr)
+                    {
+                        DrawText(racialFeat->name.c_str(), panelX + 15, panelY + 64, 16, ORANGE);
+                        DrawText(racialFeat->description.c_str(), panelX + 15, panelY + 86, 14, LIGHTGRAY);
+                    }
+
+                    std::string bonusText = "SKILL BONUSES:  " + DescribeSkillBonuses(sel.raceSkillBonuses);
+                    DrawText(bonusText.c_str(), panelX + 15, panelY + 114, 14, SKYBLUE);
+                }
             }
 
             std::string hint = "[WASD / Arrows / 1-6] Select  |  [ENTER / Click] Begin Quest  |  [R] Reroll Patrons";
@@ -905,7 +370,7 @@ int main()
                 dungeon.clear();
                 currentFloor = 0;
                 groundItems.clear();
-                GenerateFloor(map, explored, rooms, player, enemies);
+                GenerateFloor(map, explored, rooms, player, enemies, currentFloor + 1);
 
                 LevelState firstFloor;
                 for (int x = 0; x < MAP_WIDTH; x++) {
@@ -1182,7 +647,7 @@ int main()
                 if (wentUp) currentFloor--;
 
                 if (currentFloor >= (int)dungeon.size()) {
-                    GenerateFloor(map, explored, rooms, player, enemies);
+                    GenerateFloor(map, explored, rooms, player, enemies, currentFloor + 1);
                     groundItems.clear();
                     LevelState newFloor;
                     dungeon.push_back(newFloor);
@@ -1226,8 +691,16 @@ int main()
         ClearBackground(BLACK);
         BeginMode2D(camera);
 
-        for (int x = -30; x < MAP_WIDTH + 30; x++) {
-            for (int y = -30; y < MAP_HEIGHT + 30; y++) {
+        // Only walk tiles the camera can see. Draw-only: map and explored are untouched.
+        Vector2 viewTopLeft = GetScreenToWorld2D({ 0.0f, 0.0f }, camera);
+        Vector2 viewBottomRight = GetScreenToWorld2D({ (float)GetScreenWidth(), (float)GetScreenHeight() }, camera);
+        int firstTileX = std::max(-30, (int)floorf(viewTopLeft.x / (float)tileSize) - 1);
+        int lastTileX = std::min(MAP_WIDTH + 29, (int)floorf(viewBottomRight.x / (float)tileSize) + 1);
+        int firstTileY = std::max(-30, (int)floorf(viewTopLeft.y / (float)tileSize) - 1);
+        int lastTileY = std::min(MAP_HEIGHT + 29, (int)floorf(viewBottomRight.y / (float)tileSize) + 1);
+
+        for (int x = firstTileX; x <= lastTileX; x++) {
+            for (int y = firstTileY; y <= lastTileY; y++) {
                 if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) {
                     int edgeX = std::max(0, std::min(x, MAP_WIDTH - 1));
                     int edgeY = std::max(0, std::min(y, MAP_HEIGHT - 1));
@@ -1360,10 +833,7 @@ int main()
                         else if (i == 2) { actionMessage = "Load feature not implemented yet."; showPauseMenu = false; }
                         else if (i == 3) { actionMessage = "Options feature not implemented yet."; showPauseMenu = false; }
                         else if (i == 4) {
-                            currentTitleTheme = (TitleTheme)GetRandomValue(0, THEME_COUNT - 1);
-                            electricCycleTimer = 0.0f;
-                            persistentAnchors.clear();
-                            std::fill(snowAccumulation.begin(), snowAccumulation.end(), 0);
+                            ResetTitleScreen();
                             currentState = STATE_TITLE;
                             showPauseMenu = false;
                         }
