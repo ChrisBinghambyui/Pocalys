@@ -134,6 +134,7 @@
     <ClCompile Include="EnemyData.cpp" />
     <ClCompile Include="EnemyFactory.cpp" />
     <ClCompile Include="EnemyTurns.cpp" />
+    <ClCompile Include="FactionData.cpp" />
     <ClCompile Include="FeatData.cpp" />
     <ClCompile Include="ItemData.cpp" />
     <ClCompile Include="MaterialData.cpp" />
@@ -159,6 +160,7 @@
     <ClInclude Include="EnemyData.h" />
     <ClInclude Include="EnemyFactory.h" />
     <ClInclude Include="EnemyTurns.h" />
+    <ClInclude Include="FactionData.h" />
     <ClInclude Include="FeatData.h" />
     <ClInclude Include="Item.h" />
     <ClInclude Include="ItemData.h" />

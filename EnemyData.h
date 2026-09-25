@@ -9,17 +9,25 @@ struct EnemyArchetype
     std::string name;
     std::string description;
     int icon_id; // Raylib icon index (e.g. ICON_SKULL, ICON_SWORD)
-    int base_hp;
-    int hp_growth;
-    int base_damage;
-    int damage_growth;
+    int str;
+    int end;
+    int agi;
+    int intel;
+    int wil;
+    int per;
+    int lck;
+
     int armor;
+    float weight; // Creature weight, for drag/reanimate/grapple/throw math (not yet used)
 
     std::vector<int> weaponTypePool; // WeaponType ids (WeaponData.h) this archetype can carry. Empty = natural weapons only, base_damage applies.
     int minMaterialTier;             // Index into G_MATERIAL_TIERS
     int maxMaterialTier;
     int minWeaponCount;              // How many rolled weapons this archetype spawns with
     int maxWeaponCount;
+
+
+    std::vector<std::string> factionIds; // Ordered highest-priority first. See FactionData.h.
 
     char glyph = '?';    // Map symbol, copied onto Enemy.symbol at spawn
     Color color = WHITE; // Map color, copied onto Enemy.color at spawn

@@ -13,76 +13,94 @@ const int ICON_SWORD = 188;
 
 std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
     {
-        "ratnik_scavenger",
-        "Ratnik Scavenger",
+        "ratnik_scavenger", "Ratnik Scavenger",
         "A hunched, twitching rodent wielding a rusty file. Smells of rot and damp copper.",
         ICON_RAT,
-        12, 3, 3, 1, 0,
-        { 0 }, 0, 2, 1, 1, 'r', BROWN // Dagger only, wood/bone/flint tier scavenged junk
+        15, 15, 25, 10, 10, 10, 15,
+        1, 8.0f,
+        { 0 }, 0, 2, 1, 1,
+        { "vermin", "living" },
+        'r', BROWN, 120
     },
     {
-        "grave_mite",
-        "Grave Mite Swarm",
+        "grave_mite", "Grave Mite Swarm",
         "A chitinous carpet of biting insects that feeds on subterranean decay.",
         ICON_BUG,
-        8, 2, 2, 1, 1,
-        {}, -1, -1, 0, 0, 'm', DARKBROWN // Bites only, no gear
+        10, 10, 20, 5, 10, 5, 10,
+        0, 3.0f,
+        {}, -1, -1, 0, 0,
+        { "vermin", "living" },
+        'm', DARKBROWN, 130
     },
     {
-        "moldering_skeleton",
-        "Moldering Skeleton",
+        "moldering_skeleton", "Moldering Skeleton",
         "Brittle bones held together by old grudge-magic. Clack-clacks rhythmically in the dark.",
         ICON_SKULL,
-        18, 4, 5, 1, 1,
-        { 0, 1, 3, 5 }, 0, 4, 1, 1, 's', RAYWHITE // Dagger/Shortsword/Longsword/Mace, ancient grave-goods quality
+        25, 20, 15, 5, 20, 5, 10,
+        1, 45.0f,
+        { 0, 1, 3, 5 }, 0, 4, 1, 1,
+        { "skeleton", "undead" },
+        's', RAYWHITE, 100
     },
     {
-        "ironclad_beetle",
-        "Ironclad Beetle",
+        "ironclad_beetle", "Ironclad Beetle",
         "A heavy subterranean beetle with a shell thick enough to turn broken blades.",
         ICON_SHIELD,
-        30, 6, 4, 1, 4,
-        {}, -1, -1, 0, 0, 'b', SKYBLUE // Natural carapace and mandibles only
+        30, 35, 10, 5, 15, 5, 10,
+        4, 90.0f,
+        {}, -1, -1, 0, 0,
+        { "chitinguard", "living" },
+        'b', SKYBLUE, 80
     },
     {
-        "ashwood_stalker",
-        "Ashwood Stalker",
+        "ashwood_stalker", "Ashwood Stalker",
         "A gaunt, pale predator with elongated limbs built for leaping from cave ceilings.",
         ICON_BEAST,
-        25, 5, 8, 2, 1,
-        {}, -1, -1, 0, 0, 'a', LIGHTGRAY // Claws only
+        30, 20, 40, 10, 15, 10, 15,
+        1, 60.0f,
+        {}, -1, -1, 0, 0,
+        { "nightprowler", "living" },
+        'a', LIGHTGRAY, 130
     },
     {
-        "bog_witch",
-        "Bog Witch",
+        "bog_witch", "Bog Witch",
         "A muttering recluse steeped in stagnant mire water, tossing corrosive hexes.",
         ICON_MAGIC,
-        22, 4, 7, 2, 0,
-        { 5 }, 2, 5, 1, 1, 'w', PURPLE // Gnarled mace-staff, flint through iron tier
+        15, 20, 15, 35, 30, 10, 10,
+        0, 55.0f,
+        { 5 }, 2, 5, 1, 1,
+        { "hexbound", "living" },
+        'w', PURPLE, 100
     },
     {
-        "rust_golem",
-        "Rust Golem",
+        "rust_golem", "Rust Golem",
         "An abandoned mining engine reanimated by iron-eating lichen and residual arcane heat.",
         ICON_ANVIL,
-        45, 8, 10, 2, 5,
-        {}, -1, -1, 0, 0, 'G', ORANGE // Fists and machinery, no carried weapon
+        50, 50, 10, 5, 10, 5, 5,
+        5, 400.0f,
+        {}, -1, -1, 0, 0,
+        { "mechanism" },
+        'G', ORANGE, 70
     },
     {
-        "void_gazer",
-        "Void Gazer",
+        "void_gazer", "Void Gazer",
         "A floating mass of unblinking eyes that distorts lighting and drains resolve.",
         ICON_EYE,
-        35, 7, 12, 3, 2,
-        {}, -1, -1, 0, 0, 'e', VIOLET // No hands to hold anything
+        20, 30, 20, 45, 40, 20, 15,
+        2, 20.0f,
+        {}, -1, -1, 0, 0,
+        { "aberration" },
+        'e', VIOLET, 100
     },
     {
-        "dread_warden",
-        "Dread Warden",
-        "An ancient armored sentry whose blade drags against the flagstones with a shrieking sparks.",
+        "dread_warden", "Dread Warden",
+        "An ancient armored sentry whose blade drags against the flagstones with shrieking sparks.",
         ICON_SWORD,
-        60, 10, 14, 3, 6,
-        { 3, 9 }, 8, 14, 1, 2, 'W', RED // Longsword/Greatsword, Silver through Duskglass quality, sometimes dual
+        55, 55, 25, 15, 35, 10, 15,
+        6, 220.0f,
+        { 3, 9 }, 8, 14, 1, 2,
+        { "warden", "living" },
+        'W', RED, 100
     }
 };
 

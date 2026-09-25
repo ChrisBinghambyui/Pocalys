@@ -24,24 +24,16 @@ int CalculateSpawnWeight(const SpawnRule& rule, int current_floor)
     return weight;
 }
 
-int CalculateScaledHp(const EnemyArchetype& archetype, int current_floor)
-{
-    int floor_step = current_floor - 1;
-    if (floor_step < 0)
-    {
-        floor_step = 0;
-    }
-    return archetype.base_hp + (floor_step * archetype.hp_growth);
-}
+const int ENEMY_ATTRIBUTE_GROWTH_PER_FLOOR = 2;
 
-int CalculateScaledDamage(const EnemyArchetype& archetype, int current_floor)
+int CalculateScaledAttribute(int baseValue, int current_floor)
 {
     int floor_step = current_floor - 1;
     if (floor_step < 0)
     {
         floor_step = 0;
     }
-    return archetype.base_damage + (floor_step * archetype.damage_growth);
+    return baseValue + (floor_step * ENEMY_ATTRIBUTE_GROWTH_PER_FLOOR);
 }
 
 const EnemyArchetype* FindEnemyArchetype(const std::string& id)
@@ -87,6 +79,27 @@ int GetEnemySpeed(const Enemy& enemy)
     return archetype->speed;
 }
 
+float GetEnemyWeight(const Enemy& enemy)
+{
+    const EnemyArchetype* archetype = FindEnemyArchetype(enemy.archetypeId);
+    if (archetype == nullptr)
+    {
+        return 0.0f;
+    }
+    return archetype->weight;
+}
+
+FactionStance GetStance(const Enemy& actor, const Enemy& target)
+{
+    const EnemyArchetype* actorArchetype = FindEnemyArchetype(actor.archetypeId);
+    const EnemyArchetype* targetArchetype = FindEnemyArchetype(target.archetypeId);
+    if (actorArchetype == nullptr || targetArchetype == nullptr)
+    {
+        return STANCE_NEUTRAL;
+    }
+    return GetFactionStance(actorArchetype->factionIds, targetArchetype->factionIds);
+}
+
 const EnemyArchetype* PickSpawnArchetype(int current_floor)
 {
     int totalWeight = 0;
@@ -115,13 +128,35 @@ const EnemyArchetype* PickSpawnArchetype(int current_floor)
 
 Enemy CreateEnemy(const EnemyArchetype& archetype, int floorNumber, int x, int y)
 {
-    Enemy enemy = Enemy(); // Value-initialized: attributes, stamina, mana start at 0 until archetypes carry that data
+    Enemy enemy = Enemy();
     enemy.archetypeId = archetype.id;
     enemy.spawnFloor = floorNumber;
     enemy.x = x;
     enemy.y = y;
-    enemy.maxHp = CalculateScaledHp(archetype, floorNumber);
+
+    enemy.str = CalculateScaledAttribute(archetype.str, floorNumber);
+    enemy.end = CalculateScaledAttribute(archetype.end, floorNumber);
+    enemy.agi = CalculateScaledAttribute(archetype.agi, floorNumber);
+    enemy.intel = CalculateScaledAttribute(archetype.intel, floorNumber);
+    enemy.wil = CalculateScaledAttribute(archetype.wil, floorNumber);
+    enemy.per = CalculateScaledAttribute(archetype.per, floorNumber);
+    enemy.lck = CalculateScaledAttribute(archetype.lck, floorNumber);
+
+    // Same derivation as CharacterGenerator.cpp for the player. SPD isn't modeled in this codebase
+    // (see RaceData.cpp), so a flat 40 stands in for it in the stamina formula, matching the player's.
+    enemy.maxHp = enemy.end / 5;
+    if (enemy.maxHp < 1)
+    {
+        enemy.maxHp = 1;
+    }
     enemy.hp = enemy.maxHp;
+
+    enemy.maxMana = enemy.intel / 5;
+    enemy.mana = enemy.maxMana;
+
+    enemy.maxStamina = (enemy.end + enemy.str + enemy.agi + 40) / 10;
+    enemy.stamina = enemy.maxStamina;
+
     enemy.symbol = archetype.glyph;
     enemy.color = archetype.color;
     enemy.isDead = false;

@@ -69,6 +69,9 @@
     <ClCompile Include="EnemyTurns.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="FactionData.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -135,6 +138,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="EnemyTurns.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FactionData.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
