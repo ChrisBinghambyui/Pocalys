@@ -14,6 +14,9 @@
 #include "TitleScreen.h"
 #include "EnemyFactory.h"
 #include "FeatData.h"
+#include "AbilityHotbar.h"
+#include "ArrowData.h"
+#include "EnemyTurns.h"
 #include <string>
 
 const int MAP_WIDTH = 80;
@@ -69,6 +72,13 @@ std::string GetGroundItemName(const Item& item) {
             ? G_MATERIAL_TIERS[item.materialTier].name + " "
             : "";
         return mat + G_WEAPON_TYPES[item.weaponTypeId].name;
+    }
+    else if (item.ammoTypeId >= 0) {
+        const ArrowType* arrow = FindArrowType(item.ammoTypeId);
+        if (arrow != nullptr) {
+            return arrow->name;
+        }
+        return "arrows";
     }
     else if (!item.archetypeId.empty()) {
         for (const auto& arch : G_ITEM_ARCHETYPES) {
@@ -196,6 +206,7 @@ int main()
     ToggleBorderlessWindowed();
     SetTargetFPS(60);
     InitTitleScreen();
+    ResolveWeaponSkillIds();
 
     TileType map[MAP_WIDTH][MAP_HEIGHT];
     bool explored[MAP_WIDTH][MAP_HEIGHT] = { false };
@@ -366,6 +377,7 @@ int main()
 
             if (confirmSelection) {
                 ApplyProfileToPlayer(tavernCandidates[selectedCandidate], player);
+                FillEmptyHotbarSlots(player);
 
                 dungeon.clear();
                 currentFloor = 0;
@@ -466,6 +478,7 @@ int main()
                     EquipSlot targetSlot = SLOT_NONE;
 
                     if (itemToEquip.weaponTypeId >= 0) targetSlot = SLOT_MAIN_HAND;
+                    else if (itemToEquip.ammoTypeId >= 0) targetSlot = SLOT_AMMO;
                     else if (!itemToEquip.archetypeId.empty()) {
                         for (const auto& arch : G_ITEM_ARCHETYPES) {
                             if (arch.id == itemToEquip.archetypeId) { targetSlot = arch.slot; break; }
@@ -473,21 +486,27 @@ int main()
                     }
 
                     if (targetSlot != SLOT_NONE && targetSlot < SLOT_SINGLE_COUNT) {
+                        Item oldMainHand = player.equippedSlots[SLOT_MAIN_HAND];
+                        Item oldOffHand = player.equippedSlots[SLOT_OFF_HAND];
                         Item oldItem = player.equippedSlots[targetSlot];
                         player.equippedSlots[targetSlot] = itemToEquip;
                         player.inventory.erase(player.inventory.begin() + selectedItemIndex);
                         if (!oldItem.IsEmpty()) player.inventory.push_back(oldItem);
                         if (selectedItemIndex >= (int)player.inventory.size() && selectedItemIndex > 0) selectedItemIndex--;
                         actionMessage = "Equipped item.";
+                        SyncHotbarAfterEquipChange(player, oldMainHand, oldOffHand);
                     }
                 }
             }
             if (IsKeyPressed(KEY_U)) {
+                Item oldMainHand = player.equippedSlots[SLOT_MAIN_HAND];
+                Item oldOffHand = player.equippedSlots[SLOT_OFF_HAND];
                 for (int s = 0; s < SLOT_SINGLE_COUNT; s++) {
                     if (!player.equippedSlots[s].IsEmpty()) {
                         player.inventory.push_back(player.equippedSlots[s]);
                         player.equippedSlots[s] = Item();
                         actionMessage = "Unequipped item.";
+                        SyncHotbarAfterEquipChange(player, oldMainHand, oldOffHand);
                         break;
                     }
                 }
@@ -504,10 +523,19 @@ int main()
                 }
             }
 
+            bool playerMoved = false;
             if (!enableFog || (!enemyBlocking && (map[nextX][nextY] == TILE_FLOOR || map[nextX][nextY] == TILE_STAIR_UP || map[nextX][nextY] == TILE_STAIR_DOWN))) {
                 player.x = nextX;
                 player.y = nextY;
+                playerMoved = true;
                 if (!enemyBlocking) actionMessage = "";
+            }
+
+            if (enemyBlocking || playerMoved) {
+                std::vector<Enemy*> readyEnemies = AdvanceEnemyEnergy(enemies);
+                for (size_t i = 0; i < readyEnemies.size(); i++) {
+                    // TODO: resolve this enemy's turn (move toward player / attack) once enemy AI exists.
+                }
             }
         }
 

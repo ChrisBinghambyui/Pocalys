@@ -138,7 +138,9 @@ CharacterProfile GenerateRandomCharacter() {
     }
 
     Item backup;
-    backup.archetypeId = "rusty_shortsword";
+    backup.weaponTypeId = 1;  // Shortsword
+    backup.materialTier = 5;  // Iron
+    backup.condition = CONDITION_WORN;
     profile.inventory.push_back(backup);
 
     return profile;

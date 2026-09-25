@@ -20,6 +20,16 @@ int GetConditionArmorPenalty(ConditionTier condition)
     return GetConditionDamagePenalty(condition); // Same -1 Worn / -2 Damaged shape as weapons
 }
 
+
+int GetConditionRollPenalty(ConditionTier condition)
+{
+    if (condition == CONDITION_DAMAGED)
+    {
+        return 10;
+    }
+    return 0;
+}
+
 bool IsUsable(ConditionTier condition)
 {
     return condition != CONDITION_BROKEN;

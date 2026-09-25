@@ -19,6 +19,13 @@ const EnemyArchetype* FindEnemyArchetype(const std::string& id);
 // Display name for an enemy, looked up from its archetype.
 std::string GetEnemyDisplayName(const Enemy& enemy);
 
+// Armor rating for an enemy, looked up from its archetype. 0 if the archetype is unknown.
+int GetEnemyArmor(const Enemy& enemy);
+
+
+// Energy gained per player action for this enemy, looked up from its archetype. 100 if the archetype is unknown.
+int GetEnemySpeed(const Enemy& enemy);
+
 // Weighted pick from G_SPAWN_RULES for a 1-based floor number. Null if nothing can spawn.
 const EnemyArchetype* PickSpawnArchetype(int current_floor);
 

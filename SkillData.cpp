@@ -36,3 +36,15 @@ std::vector<SkillType> G_SKILL_TYPES = {
     { 25, "Speechcraft", ATTRIBUTE_PER, ATTRIBUTE_NONE, false, false },
     { 26, "Hand-to-hand", ATTRIBUTE_AGI, ATTRIBUTE_STR, false, false }
 };
+
+int FindSkillIdByName(const std::string& name)
+{
+    for (size_t i = 0; i < G_SKILL_TYPES.size(); i++)
+    {
+        if (G_SKILL_TYPES[i].name == name)
+        {
+            return G_SKILL_TYPES[i].id;
+        }
+    }
+    return -1;
+}

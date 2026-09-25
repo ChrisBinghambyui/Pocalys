@@ -57,3 +57,6 @@ enum SkillId
 };
 
 extern std::vector<SkillType> G_SKILL_TYPES;
+
+// Skill id for an exact name match against G_SKILL_TYPES. -1 if no skill has that name.
+int FindSkillIdByName(const std::string& name);

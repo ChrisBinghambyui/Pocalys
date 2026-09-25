@@ -124,12 +124,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AbilityData.cpp" />
+    <ClCompile Include="AbilityHotbar.cpp" />
+    <ClCompile Include="ArrowData.cpp" />
     <ClCompile Include="CharacterGenerator.cpp" />
     <ClCompile Include="CharacterSheetState.cpp" />
     <ClCompile Include="Combat.cpp" />
     <ClCompile Include="Durability.cpp" />
     <ClCompile Include="EnemyData.cpp" />
     <ClCompile Include="EnemyFactory.cpp" />
+    <ClCompile Include="EnemyTurns.cpp" />
     <ClCompile Include="FeatData.cpp" />
     <ClCompile Include="ItemData.cpp" />
     <ClCompile Include="MaterialData.cpp" />
@@ -143,6 +147,9 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AbilityData.h" />
+    <ClInclude Include="AbilityHotbar.h" />
+    <ClInclude Include="ArrowData.h" />
     <ClInclude Include="CharacterGenerator.h" />
     <ClInclude Include="CharacterSheetState.h" />
     <ClInclude Include="Combat.h" />
@@ -151,6 +158,7 @@
     <ClInclude Include="Enemy.h" />
     <ClInclude Include="EnemyData.h" />
     <ClInclude Include="EnemyFactory.h" />
+    <ClInclude Include="EnemyTurns.h" />
     <ClInclude Include="FeatData.h" />
     <ClInclude Include="Item.h" />
     <ClInclude Include="ItemData.h" />

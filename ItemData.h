@@ -16,6 +16,7 @@ enum EquipSlot {
     SLOT_SHOE_RIGHT,
     SLOT_MAIN_HAND,
     SLOT_OFF_HAND,
+    SLOT_AMMO,
     SLOT_SINGLE_COUNT, // Not a real slot. Marks the end of the fixed array, used to size it.
     SLOT_AMULET, // Multi-slot category, lives in Player.equippedAmulets instead of the fixed array
     SLOT_RING,   // Multi-slot category, lives in Player.equippedRings instead of the fixed array
@@ -33,6 +34,7 @@ struct ItemArchetype
     int damage_dice_count; // Weapons only. 0 if not a weapon.
     int damage_dice_sides;
     int damage_bonus;
+    bool isShield = false; // Off-hand item grants a Block reaction and triggers the one-handed+shield attack penalty
 };
 
 extern std::vector<ItemArchetype> G_ITEM_ARCHETYPES;

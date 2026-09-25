@@ -18,5 +18,14 @@ std::vector<ItemArchetype> G_ITEM_ARCHETYPES = {
         201,
         SLOT_MAIN_HAND,
         0, 1, 6, 0
+    },
+    {
+        "iron_buckler",
+        "Iron Buckler",
+        "A small round shield, dented but steady.",
+        202,
+        SLOT_OFF_HAND,
+        1, 0, 0, 0,
+        true
     }
 };

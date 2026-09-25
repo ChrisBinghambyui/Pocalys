@@ -23,6 +23,7 @@ struct EnemyArchetype
 
     char glyph = '?';    // Map symbol, copied onto Enemy.symbol at spawn
     Color color = WHITE; // Map color, copied onto Enemy.color at spawn
+    int speed = 100; // Energy gained per player action. 100 = acts once per player turn, 200 = twice, 50 = every other turn.
 };
 
 struct SpawnRule

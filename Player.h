@@ -4,6 +4,7 @@
 #include "Item.h"
 #include "ItemData.h"
 #include "SkillData.h"
+#include "AbilityData.h"
 
 
 struct SkillState {
@@ -56,6 +57,9 @@ struct Player {
     // Active character unlocks
     std::vector<int> activeFeats;
     std::vector<int> activeBoons;
+
+    // Hotbar: keys 1-0 map to slots 0-9. Holds ability ids (AbilityData.h), empty string = empty slot.
+    std::vector<std::string> hotbar = std::vector<std::string>(HOTBAR_SIZE);
 
     int getAttributeValue(Attribute attr) const {
         switch (attr) {

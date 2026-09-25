@@ -25,6 +25,11 @@ struct WeaponType
     bool versatile;  // Can be used one- or two-handed
     bool reach;
     bool thrown;
+    std::vector<std::string> abilityIds; // Ordered ids into G_ABILITIES. Position matters, hotbar auto-swap matches on it. Empty = no abilities.
+    int skillId = -1; // Index into G_SKILL_TYPES, filled in by ResolveWeaponSkillIds(). -1 if the skill name did not match.
 };
 
 extern std::vector<WeaponType> G_WEAPON_TYPES;
+
+// Call once at startup. Fills skillId on every weapon type by matching its skill name.
+void ResolveWeaponSkillIds();

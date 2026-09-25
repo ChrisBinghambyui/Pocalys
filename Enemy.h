@@ -26,4 +26,5 @@ struct Enemy {
     std::string archetypeId; // Key into G_ENEMY_ARCHETYPES. Name, armor, and damage are looked up from it.
     int spawnFloor;          // 1-based floor this enemy spawned on. Pair with the archetype to scale damage.
     std::vector<Item> inventory; // Loot available once this corpse is opened as a container
+    int energy = 0; // Accumulates via AdvanceEnemyEnergy (EnemyTurns.h). Crosses ACTION_THRESHOLD to act.
 };

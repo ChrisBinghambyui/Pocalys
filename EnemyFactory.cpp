@@ -66,6 +66,27 @@ std::string GetEnemyDisplayName(const Enemy& enemy)
     return archetype->name;
 }
 
+
+int GetEnemyArmor(const Enemy& enemy)
+{
+    const EnemyArchetype* archetype = FindEnemyArchetype(enemy.archetypeId);
+    if (archetype == nullptr)
+    {
+        return 0;
+    }
+    return archetype->armor;
+}
+
+int GetEnemySpeed(const Enemy& enemy)
+{
+    const EnemyArchetype* archetype = FindEnemyArchetype(enemy.archetypeId);
+    if (archetype == nullptr)
+    {
+        return 100;
+    }
+    return archetype->speed;
+}
+
 const EnemyArchetype* PickSpawnArchetype(int current_floor)
 {
     int totalWeight = 0;
