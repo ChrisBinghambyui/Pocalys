@@ -1,5 +1,6 @@
 #pragma once
 #include "raylib.h"
+#include "EnemyAI.h"
 #include <string>
 #include <vector>
 
@@ -26,12 +27,15 @@ struct EnemyArchetype
     int minWeaponCount;              // How many rolled weapons this archetype spawns with
     int maxWeaponCount;
 
-
     std::vector<std::string> factionIds; // Ordered highest-priority first. See FactionData.h.
 
     char glyph = '?';    // Map symbol, copied onto Enemy.symbol at spawn
     Color color = WHITE; // Map color, copied onto Enemy.color at spawn
     int speed = 100; // Energy gained per player action. 100 = acts once per player turn, 200 = twice, 50 = every other turn.
+    AIBrain brain = BRAIN_MINDLESS;
+    int detectionRadius = 8; // Tiles of line-of-sight range. Lower for mindless/small creatures, higher for keen hunters.
+    bool canHaveVariant = true; // False for swarms/masses where a tag like "Archer" wouldn't make sense
+    std::vector<std::string> excludedVariantIds; // Variant ids this archetype can never roll (e.g. no hands for a bow)
 };
 
 struct SpawnRule

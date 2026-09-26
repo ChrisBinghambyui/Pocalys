@@ -1,16 +1,56 @@
 #include "FactionData.h"
 
 std::vector<FactionData> G_FACTIONS = {
-    { "vermin",       {},                                                             true,  {} },
-    { "living",       {},                                                             false, {} },
-    { "skeleton",     {},                                                             false, {} },
-    { "undead",       { { "living", STANCE_HOSTILE } },                               false, {} },
-    { "chitinguard",  {},                                                             false, {} },
-    { "nightprowler", { { "chitinguard", STANCE_HOSTILE } },                          false, {} },
-    { "hexbound",     {},                                                             false, {} },
-    { "mechanism",    { { "living", STANCE_HOSTILE }, { "undead", STANCE_HOSTILE } }, false, {} },
-    { "aberration",   { { "living", STANCE_HOSTILE }, { "undead", STANCE_HOSTILE } }, false, {} },
-    { "warden",       { { "living", STANCE_HOSTILE } },                               false, {} }
+    { "rat",       {},                                                             true,  {} },
+    { "living",    { { "undead", STANCE_HOSTILE } },                               false, {} },
+    { "skeleton",  {},                                                             false, {} },
+    { "undead",    { { "living", STANCE_HOSTILE } },                               false, {} },
+    { "insect",    {},                                                             false, {} },
+    { "beast",     { { "insect", STANCE_HOSTILE } },                               false, {} },
+    { "warlock",   {},                                                             false, {} },
+    { "horror",    { { "living", STANCE_HOSTILE }, { "undead", STANCE_HOSTILE } }, false, {} },
+    { "construct", { { "living", STANCE_HOSTILE }, { "undead", STANCE_HOSTILE } }, false, {} },
+    { "guardian",  { { "living", STANCE_HOSTILE } },                               false, {} },
+
+    { "zombie",  {}, false, {} },
+    { "ghost",   {}, false, {} },
+    { "vampire", {}, false, {} },
+    { "lich",    {}, false, {} },
+    { "knight",  {}, false, {} },
+    { "dragon",  {}, false, {} },
+    { "mummy",   {}, false, {} },
+
+    { "peasant", {}, false, {} },
+    { "soldier", {}, false, {} },
+    { "bowman",  {}, false, {} },
+    { "griffin", {}, false, {} },
+    { "cleric",  {}, false, {} },
+    { "angel",   {}, false, {} },
+
+    { "sprite",  {}, false, {} },
+    { "gremlin", {}, false, {} },
+    { "golem",   {}, false, {} },
+    { "mage",    {}, false, {} },
+    { "naga",    {}, false, {} },
+    { "djinn",   {}, false, {} },
+    { "titan",   {}, false, {} },
+
+    { "goblin",  {}, false, {} },
+    { "orc",     {}, false, {} },
+    { "ogre",    {}, false, {} },
+    { "roc",     {}, false, {} },
+    { "cyclops", {}, false, {} },
+
+    { "demon", { { "living", STANCE_HOSTILE }, { "undead", STANCE_HOSTILE } }, false, {} },
+    { "succubus", {}, false, {} },
+    { "devil", {}, false, {} },
+    { "fiend", {}, false, {} },
+    { "nightmare", {}, false, {} },
+
+    { "unicorn", {}, false, {} },
+    { "minotaur", {}, false, {} },
+    { "raider", {}, false, {} },
+    { "hydra", {}, false, {} }
 };
 
 const FactionData* FindFaction(const std::string& id)

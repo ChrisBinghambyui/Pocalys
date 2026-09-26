@@ -27,4 +27,7 @@ struct Enemy {
     int spawnFloor;          // 1-based floor this enemy spawned on. Pair with the archetype to scale damage.
     std::vector<Item> inventory; // Loot available once this corpse is opened as a container
     int energy = 0; // Accumulates via AdvanceEnemyEnergy (EnemyTurns.h). Crosses ACTION_THRESHOLD to act.
+    int homeX = 0; // Spawn tile, used as the leash anchor for BRAIN_TERRITORIAL.
+    int homeY = 0;
+    std::string variantId = ""; // Empty if no variant tag rolled. See VariantData.h.
 };

@@ -1,8 +1,52 @@
 #include "EnemyFactory.h"
 #include "WeaponData.h"
 #include "MaterialData.h"
+#include "VariantData.h"
 #include "raylib.h"
 #include <cstdlib>
+
+const int VARIANT_CHANCE_PERCENT = 25; // Chance an eligible spawn rolls a variant tag instead of the plain base creature
+
+static const CreatureVariant* PickCompatibleVariant(const EnemyArchetype& archetype)
+{
+    if (!archetype.canHaveVariant)
+    {
+        return nullptr;
+    }
+
+    std::vector<const CreatureVariant*> pool;
+    for (size_t i = 0; i < G_CREATURE_VARIANTS.size(); i++)
+    {
+        bool excluded = false;
+        for (size_t e = 0; e < archetype.excludedVariantIds.size(); e++)
+        {
+            if (archetype.excludedVariantIds[e] == G_CREATURE_VARIANTS[i].id)
+            {
+                excluded = true;
+                break;
+            }
+        }
+        if (!excluded)
+        {
+            pool.push_back(&G_CREATURE_VARIANTS[i]);
+        }
+    }
+
+    if (pool.empty())
+    {
+        return nullptr;
+    }
+    return pool[GetRandomValue(0, (int)pool.size() - 1)];
+}
+
+static int ClampMinOne(int value)
+{
+    if (value < 1)
+    {
+        return 1;
+    }
+    return value;
+}
 
 int CalculateSpawnWeight(const SpawnRule& rule, int current_floor)
 {
@@ -55,7 +99,16 @@ std::string GetEnemyDisplayName(const Enemy& enemy)
     {
         return "creature";
     }
-    return archetype->name;
+    std::string name = archetype->name;
+    if (!enemy.variantId.empty())
+    {
+        const CreatureVariant* variant = FindVariant(enemy.variantId);
+        if (variant != nullptr)
+        {
+            name = variant->namePrefix + name + variant->nameSuffix;
+        }
+    }
+    return name;
 }
 
 
@@ -66,7 +119,16 @@ int GetEnemyArmor(const Enemy& enemy)
     {
         return 0;
     }
-    return archetype->armor;
+    int armor = archetype->armor;
+    if (!enemy.variantId.empty())
+    {
+        const CreatureVariant* variant = FindVariant(enemy.variantId);
+        if (variant != nullptr)
+        {
+            armor += variant->armorMod;
+        }
+    }
+    return armor;
 }
 
 int GetEnemySpeed(const Enemy& enemy)
@@ -86,7 +148,39 @@ float GetEnemyWeight(const Enemy& enemy)
     {
         return 0.0f;
     }
-    return archetype->weight;
+    float weight = archetype->weight;
+    if (!enemy.variantId.empty())
+    {
+        const CreatureVariant* variant = FindVariant(enemy.variantId);
+        if (variant != nullptr)
+        {
+            weight *= variant->weightMultiplier;
+        }
+    }
+    return weight;
+}
+
+int GetEnemyDetectionRadius(const Enemy& enemy)
+{
+    const EnemyArchetype* archetype = FindEnemyArchetype(enemy.archetypeId);
+    int radius = 8;
+    if (archetype != nullptr)
+    {
+        radius = archetype->detectionRadius;
+    }
+    if (!enemy.variantId.empty())
+    {
+        const CreatureVariant* variant = FindVariant(enemy.variantId);
+        if (variant != nullptr)
+        {
+            radius += variant->detectionRadiusMod;
+        }
+    }
+    if (radius < 1)
+    {
+        radius = 1;
+    }
+    return radius;
 }
 
 FactionStance GetStance(const Enemy& actor, const Enemy& target)
@@ -133,6 +227,8 @@ Enemy CreateEnemy(const EnemyArchetype& archetype, int floorNumber, int x, int y
     enemy.spawnFloor = floorNumber;
     enemy.x = x;
     enemy.y = y;
+    enemy.homeX = x;
+    enemy.homeY = y;
 
     enemy.str = CalculateScaledAttribute(archetype.str, floorNumber);
     enemy.end = CalculateScaledAttribute(archetype.end, floorNumber);
@@ -141,6 +237,23 @@ Enemy CreateEnemy(const EnemyArchetype& archetype, int floorNumber, int x, int y
     enemy.wil = CalculateScaledAttribute(archetype.wil, floorNumber);
     enemy.per = CalculateScaledAttribute(archetype.per, floorNumber);
     enemy.lck = CalculateScaledAttribute(archetype.lck, floorNumber);
+
+    const CreatureVariant* variant = nullptr;
+    if (GetRandomValue(1, 100) <= VARIANT_CHANCE_PERCENT)
+    {
+        variant = PickCompatibleVariant(archetype);
+    }
+    if (variant != nullptr)
+    {
+        enemy.variantId = variant->id;
+        enemy.str = ClampMinOne(enemy.str + variant->strMod);
+        enemy.end = ClampMinOne(enemy.end + variant->endMod);
+        enemy.agi = ClampMinOne(enemy.agi + variant->agiMod);
+        enemy.intel = ClampMinOne(enemy.intel + variant->intelMod);
+        enemy.wil = ClampMinOne(enemy.wil + variant->wilMod);
+        enemy.per = ClampMinOne(enemy.per + variant->perMod);
+        enemy.lck = ClampMinOne(enemy.lck + variant->lckMod);
+    }
 
     // Same derivation as CharacterGenerator.cpp for the player. SPD isn't modeled in this codebase
     // (see RaceData.cpp), so a flat 40 stands in for it in the stamina formula, matching the player's.
@@ -160,28 +273,55 @@ Enemy CreateEnemy(const EnemyArchetype& archetype, int floorNumber, int x, int y
     enemy.symbol = archetype.glyph;
     enemy.color = archetype.color;
     enemy.isDead = false;
-    enemy.inventory = GenerateEnemyLoadout(archetype);
+    enemy.inventory = GenerateEnemyLoadout(archetype, variant);
     return enemy;
 }
 
 
-std::vector<Item> GenerateEnemyLoadout(const EnemyArchetype& archetype)
+std::vector<Item> GenerateEnemyLoadout(const EnemyArchetype& archetype, const CreatureVariant* variant)
 {
     std::vector<Item> loadout;
 
-    if (archetype.weaponTypePool.empty())
+    std::vector<int> pool = archetype.weaponTypePool;
+    bool variantAddedWeapon = false;
+    if (variant != nullptr)
+    {
+        for (size_t i = 0; i < variant->addWeaponTypeIds.size(); i++)
+        {
+            pool.push_back(variant->addWeaponTypeIds[i]);
+            variantAddedWeapon = true;
+        }
+    }
+
+    if (pool.empty())
     {
         return loadout;
     }
 
-    int weaponCount = GetRandomValue(archetype.minWeaponCount, archetype.maxWeaponCount);
+    int minCount = archetype.minWeaponCount;
+    int maxCount = archetype.maxWeaponCount;
+    if (variantAddedWeapon && maxCount < 1)
+    {
+        minCount = 1; // A natural fighter that just gained a variant weapon should actually carry it
+        maxCount = 1;
+    }
+
+    int minMaterial = archetype.minMaterialTier;
+    int maxMaterial = archetype.maxMaterialTier;
+    if (variantAddedWeapon && minMaterial < 0)
+    {
+        minMaterial = 0; // Natural fighters have no material range of their own, give the variant weapon a real tier
+        maxMaterial = 4;
+    }
+
+    int weaponCount = GetRandomValue(minCount, maxCount);
     for (int i = 0; i < weaponCount; i++)
     {
         Item weapon;
-        int poolIndex = GetRandomValue(0, (int)archetype.weaponTypePool.size() - 1);
-        weapon.weaponTypeId = archetype.weaponTypePool[poolIndex];
-        weapon.materialTier = GetRandomValue(archetype.minMaterialTier, archetype.maxMaterialTier);
-        weapon.condition = CONDITION_GOOD; // Actively wielded, not yet looted-and-forgotten junk
+        int poolIndex = GetRandomValue(0, (int)pool.size() - 1);
+        weapon.weaponTypeId = pool[poolIndex];
+        weapon.materialTier = GetRandomValue(minMaterial, maxMaterial);
+        weapon.condition = CONDITION_GOOD;
         loadout.push_back(weapon);
     }
 

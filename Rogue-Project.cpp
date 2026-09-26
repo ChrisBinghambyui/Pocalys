@@ -17,11 +17,15 @@
 #include "AbilityHotbar.h"
 #include "ArrowData.h"
 #include "EnemyTurns.h"
+#include "FactionConflict.h"
+#include "EnemyAI.h"
+#include "LineOfSight.h"
 #include <string>
 
 const int MAP_WIDTH = 80;
 const int MAP_HEIGHT = 45;
 const int MAX_ROOMS = 15;
+const int PLAYER_VISION_RADIUS = 8; // Tiles of line-of-sight range for fog-of-war reveal
 
 enum GameState {
     STATE_TITLE,
@@ -406,6 +410,13 @@ int main()
         camera.offset = { GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f };
         int nextX = player.x; int nextY = player.y;
 
+        auto isOpaque = [&](int checkX, int checkY) -> bool {
+            if (checkX < 0 || checkX >= MAP_WIDTH || checkY < 0 || checkY >= MAP_HEIGHT) {
+                return true; // Out of bounds blocks sight the same as a wall
+            }
+            return map[checkX][checkY] == TILE_WALL;
+            };
+
         if (IsKeyPressed(KEY_ESCAPE)) {
             showPauseMenu = !showPauseMenu;
             if (showPauseMenu) showInventory = false;
@@ -532,9 +543,55 @@ int main()
             }
 
             if (enemyBlocking || playerMoved) {
+                auto isWalkable = [&](int checkX, int checkY) -> bool {
+                    if (checkX < 0 || checkX >= MAP_WIDTH || checkY < 0 || checkY >= MAP_HEIGHT) {
+                        return false;
+                    }
+                    TileType tile = map[checkX][checkY];
+                    if (tile != TILE_FLOOR && tile != TILE_STAIR_UP && tile != TILE_STAIR_DOWN) {
+                        return false;
+                    }
+                    if (checkX == player.x && checkY == player.y) {
+                        return false;
+                    }
+                    for (size_t e = 0; e < enemies.size(); e++) {
+                        if (!enemies[e].isDead && enemies[e].x == checkX && enemies[e].y == checkY) {
+                            return false;
+                        }
+                    }
+                    return true;
+                    };
+
                 std::vector<Enemy*> readyEnemies = AdvanceEnemyEnergy(enemies);
                 for (size_t i = 0; i < readyEnemies.size(); i++) {
-                    // TODO: resolve this enemy's turn (move toward player / attack) once enemy AI exists.
+                    Enemy* actor = readyEnemies[i];
+                    if (actor->isDead) {
+                        continue;
+                    }
+
+                    AIAction action = DecideEnemyAction(*actor, actor->homeX, actor->homeY, enemies, player, isWalkable, isOpaque);
+
+                    if (action.type == AI_ACTION_MOVE) {
+                        actor->x += action.moveX;
+                        actor->y += action.moveY;
+                    }
+                    else if (action.type == AI_ACTION_ATTACK_PLAYER) {
+                        int damage = CalculateEnemyAttackDamage(*actor, 0); // No player armor calc yet
+                        player.hp -= damage;
+                        if (player.hp < 0) {
+                            player.hp = 0;
+                        }
+                        actionMessage = "The " + GetEnemyName(*actor) + " hits you for " + std::to_string(damage) + " damage!";
+                    }
+                    else if (action.type == AI_ACTION_ATTACK_ENEMY && action.targetEnemy != nullptr) {
+                        int armor = GetEnemyArmor(*action.targetEnemy);
+                        int damage = CalculateEnemyAttackDamage(*actor, armor);
+                        action.targetEnemy->hp -= damage;
+                        if (action.targetEnemy->hp <= 0) {
+                            action.targetEnemy->hp = 0;
+                            action.targetEnemy->isDead = true;
+                        }
+                    }
                 }
             }
         }
@@ -584,7 +641,7 @@ int main()
                         case MODE_LOOK:  actionMessage = "You see a " + itemName + " lying on the ground."; break;
                         case MODE_SPEAK: actionMessage = "You talk to the " + itemName + ". It offers no reply."; break;
                         case MODE_GRAB:  actionMessage = "Press 'G' while standing over it to pick up the " + itemName + "."; break;
-                        case MODE_STEAL: actionMessage = "It's on the floor—taking it is just picking it up."; break;
+                        case MODE_STEAL: actionMessage = "It's on the floorï¿½taking it is just picking it up."; break;
                         }
                         foundSomething = true;
                         break;
@@ -688,6 +745,7 @@ int main()
                         }
                     }
                     enemies = dungeon[currentFloor].savedEnemies;
+                    ResolveOffscreenFactionConflicts(enemies, currentFloor + 1);
                     groundItems = dungeon[currentFloor].savedItems;
 
                     TileType targetStair = wentDown ? TILE_STAIR_UP : TILE_STAIR_DOWN;
@@ -704,11 +762,17 @@ int main()
             }
         }
 
-        for (int i = -2; i <= 2; i++) {
-            for (int j = -2; j <= 2; j++) {
+        for (int i = -PLAYER_VISION_RADIUS; i <= PLAYER_VISION_RADIUS; i++) {
+            for (int j = -PLAYER_VISION_RADIUS; j <= PLAYER_VISION_RADIUS; j++) {
                 int viewX = player.x + i;
                 int viewY = player.y + j;
-                if (viewX >= 0 && viewX < MAP_WIDTH && viewY >= 0 && viewY < MAP_HEIGHT) {
+                if (viewX < 0 || viewX >= MAP_WIDTH || viewY < 0 || viewY >= MAP_HEIGHT) {
+                    continue;
+                }
+                if (i * i + j * j > PLAYER_VISION_RADIUS * PLAYER_VISION_RADIUS) {
+                    continue;
+                }
+                if (HasLineOfSight(player.x, player.y, viewX, viewY, isOpaque)) {
                     explored[viewX][viewY] = true;
                 }
             }
