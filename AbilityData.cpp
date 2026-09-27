@@ -25,3 +25,28 @@ const AbilityDef* FindAbility(const std::string& id)
     }
     return nullptr;
 }
+
+char GetAbilityIcon(const AbilityDef& ability)
+{
+    if (ability.shape == ABILITY_SHAPE_RANGED_SINGLE)
+    {
+        return '>';
+    }
+    if (ability.shape == ABILITY_SHAPE_LINE)
+    {
+        return '-';
+    }
+    if (ability.shape == ABILITY_SHAPE_CONE)
+    {
+        return '^';
+    }
+    if (ability.shape == ABILITY_SHAPE_AREA)
+    {
+        return 'o';
+    }
+    if (ability.shape == ABILITY_SHAPE_ADJACENT)
+    {
+        return '/';
+    }
+    return '*'; // ABILITY_SHAPE_SELF and anything unmapped
+}

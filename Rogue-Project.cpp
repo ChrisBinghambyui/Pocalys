@@ -15,6 +15,11 @@
 #include "EnemyFactory.h"
 #include "FeatData.h"
 #include "AbilityHotbar.h"
+#include "AbilityData.h"
+#include "HotbarUI.h"
+#include "MenuHubUI.h"
+#include "TargetingUI.h"
+#include "UIScale.h"
 #include "ArrowData.h"
 #include "EnemyTurns.h"
 #include "FactionConflict.h"
@@ -237,6 +242,11 @@ int main()
     bool showPauseMenu = false;
     int pauseMenuSelection = 0;
 
+    bool showMenuHub = false;
+    MenuTab currentMenuTab = MENU_TAB_INVENTORY;
+    bool showDeathScreen = false;
+    std::string aimingAbilityId = "";
+
     Camera2D camera = { 0 };
     camera.offset = { screenWidth / 2.0f, screenHeight / 2.0f };
     camera.rotation = 0.0f;
@@ -295,14 +305,25 @@ int main()
             BeginDrawing();
             ClearBackground(Color{ 18, 12, 14, 255 });
 
-            DrawText("THE RUSTY ANVIL TAVERN", GetScreenWidth() / 2 - MeasureText("THE RUSTY ANVIL TAVERN", 32) / 2, 30, 32, GOLD);
-            DrawText("Select a patron to descend into the dungeon...", GetScreenWidth() / 2 - MeasureText("Select a patron to descend into the dungeon...", 18) / 2, 70, 18, LIGHTGRAY);
+            float uiScale = GetUIScale();
+            int titleFontSize = (int)(32 * uiScale);
+            DrawText("THE RUSTY ANVIL TAVERN", GetScreenWidth() / 2 - MeasureText("THE RUSTY ANVIL TAVERN", titleFontSize) / 2, (int)(30 * uiScale), titleFontSize, GOLD);
+            int subFontSize = (int)(22 * uiScale);
+            const char* subtitleText = "Select a patron to descend into the dungeon...";
+            DrawText(subtitleText, GetScreenWidth() / 2 - MeasureText(subtitleText, subFontSize) / 2, (int)(80 * uiScale), subFontSize, LIGHTGRAY);
 
             Vector2 mousePos = GetMousePosition();
-            int cardW = 340; int cardH = 220;
-            int marginX = 25; int marginY = 20;
-            int startX = GetScreenWidth() / 2 - (cardW * 3 + marginX * 2) / 2;
-            int startY = 110;
+            int marginX = (int)(30 * uiScale);
+            int marginY = (int)(25 * uiScale);
+            int gridEdge = (int)(60 * uiScale);
+            int cardW = (GetScreenWidth() - gridEdge * 2 - marginX * 2) / 3;
+            int cardH = (int)(cardW * 0.62f);
+            int startX = gridEdge;
+            int startY = (int)(140 * uiScale);
+            int nameFontSize = (int)(24 * uiScale);
+            int lineFontSize = (int)(19 * uiScale);
+            int smallFontSize = (int)(18 * uiScale);
+            int cardPadding = (int)(16 * uiScale);
 
             for (int i = 0; i < (int)tavernCandidates.size(); i++) {
                 const auto& cand = tavernCandidates[i];
@@ -323,24 +344,26 @@ int main()
                 Color borderCol = isSelected ? GOLD : GRAY;
 
                 DrawRectangle(cx, cy, cardW, cardH, bgCol);
-                DrawRectangleLinesEx(cardRect, isSelected ? 3.0f : 1.0f, borderCol);
+                DrawRectangleLinesEx(cardRect, isSelected ? 4.0f : 1.5f, borderCol);
 
-                DrawText(TextFormat("%d. %s", i + 1, cand.name.c_str()), cx + 12, cy + 12, 18, isSelected ? YELLOW : WHITE);
-                DrawText(TextFormat("%s  |  Birthsign: %s", cand.className.c_str(), cand.birthsign.c_str()), cx + 12, cy + 36, 14, ORANGE);
-
-                DrawText(TextFormat("HP: %d  SP: %d  MP: %d", cand.maxHp, cand.maxStamina, cand.maxMana), cx + 12, cy + 58, 14, GREEN);
-                DrawText(TextFormat("STR:%d END:%d AGI:%d INT:%d", cand.str, cand.end, cand.agi, cand.intel), cx + 12, cy + 78, 13, LIGHTGRAY);
-                DrawText(TextFormat("WIL:%d PER:%d LCK:%d", cand.wil, cand.per, cand.lck), cx + 12, cy + 96, 13, LIGHTGRAY);
-
-                std::string mainHand = "Bare Fists";
-                if (!cand.equippedSlots[SLOT_MAIN_HAND].IsEmpty()) {
-                    mainHand = GetGroundItemName(cand.equippedSlots[SLOT_MAIN_HAND]);
-                }
+                int lineY = cy + cardPadding;
+                DrawText(TextFormat("%d. %s", i + 1, cand.name.c_str()), cx + cardPadding, lineY, nameFontSize, isSelected ? YELLOW : WHITE);
+                lineY += (int)(nameFontSize * 1.4f);
+                DrawText(cand.className.c_str(), cx + cardPadding, lineY, lineFontSize, ORANGE);
+                lineY += (int)(lineFontSize * 1.3f);
+                DrawText(TextFormat("Birthsign: %s", cand.birthsign.c_str()), cx + cardPadding, lineY, smallFontSize, ORANGE);
+                lineY += (int)(lineFontSize * 1.4f);
+                DrawText(TextFormat("HP: %d  SP: %d  MP: %d", cand.maxHp, cand.maxStamina, cand.maxMana), cx + cardPadding, lineY, lineFontSize, GREEN);
+                lineY += (int)(lineFontSize * 1.4f);
+                DrawText(TextFormat("STR:%d END:%d AGI:%d INT:%d", cand.str, cand.end, cand.agi, cand.intel), cx + cardPadding, lineY, smallFontSize, LIGHTGRAY);
+                lineY += (int)(smallFontSize * 1.3f);
+                DrawText(TextFormat("WIL:%d PER:%d LCK:%d", cand.wil, cand.per, cand.lck), cx + cardPadding, lineY, smallFontSize, LIGHTGRAY);
+                lineY += (int)(smallFontSize * 1.5f);
 
                 const RaceData* candRace = FindRace(cand.raceId);
                 if (candRace != nullptr)
                 {
-                    DrawText(TextFormat("Race: %s", candRace->name.c_str()), cx + 12, cy + 140, 14, VIOLET);
+                    DrawText(TextFormat("Race: %s", candRace->name.c_str()), cx + cardPadding, lineY, lineFontSize, VIOLET);
                 }
             }
 
@@ -350,33 +373,42 @@ int main()
                 const CharacterProfile& sel = tavernCandidates[selectedCandidate];
                 const RaceData* selRace = FindRace(sel.raceId);
                 int panelX = startX;
-                int panelY = startY + 2 * (cardH + marginY) + 5;
+                int panelY = startY + 2 * (cardH + marginY) + (int)(10 * uiScale);
                 int panelW = cardW * 3 + marginX * 2;
-                int panelH = 140;
+                int panelH = GetScreenHeight() - panelY - (int)(90 * uiScale);
+                if (panelH < (int)(160 * uiScale)) {
+                    panelH = (int)(160 * uiScale);
+                }
 
                 DrawRectangle(panelX, panelY, panelW, panelH, Color{ 28, 22, 24, 255 });
-                DrawRectangleLinesEx(Rectangle{ (float)panelX, (float)panelY, (float)panelW, (float)panelH }, 1.0f, GOLD);
+                DrawRectangleLinesEx(Rectangle{ (float)panelX, (float)panelY, (float)panelW, (float)panelH }, 1.5f, GOLD);
 
                 if (selRace != nullptr)
                 {
-                    DrawText(("RACE: " + selRace->name).c_str(), panelX + 15, panelY + 12, 18, VIOLET);
-                    DrawText(selRace->description.c_str(), panelX + 15, panelY + 36, 14, LIGHTGRAY);
+                    int detailPadding = (int)(18 * uiScale);
+                    int detailY = panelY + detailPadding;
+                    DrawText(("RACE: " + selRace->name).c_str(), panelX + detailPadding, detailY, nameFontSize, VIOLET);
+                    detailY += (int)(nameFontSize * 1.5f);
+                    DrawText(selRace->description.c_str(), panelX + detailPadding, detailY, lineFontSize, LIGHTGRAY);
+                    detailY += (int)(lineFontSize * 1.8f);
 
                     const Feat* racialFeat = FindFeat(selRace->racialFeatId);
                     if (racialFeat != nullptr)
                     {
-                        DrawText(racialFeat->name.c_str(), panelX + 15, panelY + 64, 16, ORANGE);
-                        DrawText(racialFeat->description.c_str(), panelX + 15, panelY + 86, 14, LIGHTGRAY);
+                        DrawText(racialFeat->name.c_str(), panelX + detailPadding, detailY, lineFontSize, ORANGE);
+                        detailY += (int)(lineFontSize * 1.5f);
+                        DrawText(racialFeat->description.c_str(), panelX + detailPadding, detailY, smallFontSize, LIGHTGRAY);
+                        detailY += (int)(smallFontSize * 1.7f);
                     }
 
                     std::string bonusText = "SKILL BONUSES:  " + DescribeSkillBonuses(sel.raceSkillBonuses);
-                    DrawText(bonusText.c_str(), panelX + 15, panelY + 114, 14, SKYBLUE);
+                    DrawText(bonusText.c_str(), panelX + detailPadding, detailY, smallFontSize, SKYBLUE);
                 }
             }
 
             std::string hint = "[WASD / Arrows / 1-6] Select  |  [ENTER / Click] Begin Quest  |  [R] Reroll Patrons";
-            DrawText(hint.c_str(), GetScreenWidth() / 2 - MeasureText(hint.c_str(), 18) / 2, GetScreenHeight() - 50, 18, GOLD);
-
+            int hintFontSize = (int)(22 * uiScale);
+            DrawText(hint.c_str(), GetScreenWidth() / 2 - MeasureText(hint.c_str(), hintFontSize) / 2, GetScreenHeight() - (int)(50 * uiScale), hintFontSize, GOLD);
             EndDrawing();
 
             if (confirmSelection) {
@@ -406,6 +438,31 @@ int main()
             continue;
         }
 
+        if (showDeathScreen)
+        {
+            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))
+            {
+                showDeathScreen = false;
+                ResetTitleScreen();
+                currentState = STATE_TITLE;
+            }
+
+            BeginDrawing();
+            ClearBackground(BLACK);
+            float deathScale = GetUIScale();
+            const char* deathText = "YOU DIED";
+            int deathFontSize = (int)(100 * deathScale);
+            int deathWidth = MeasureText(deathText, deathFontSize);
+            DrawText(deathText, GetScreenWidth() / 2 - deathWidth / 2, GetScreenHeight() / 2 - deathFontSize / 2, deathFontSize, MAROON);
+
+            const char* deathHint = "Press Enter to return to the title";
+            int hintFontSize = (int)(28 * deathScale);
+            int hintWidth = MeasureText(deathHint, hintFontSize);
+            DrawText(deathHint, GetScreenWidth() / 2 - hintWidth / 2, GetScreenHeight() / 2 + deathFontSize / 2 + (int)(20 * deathScale), hintFontSize, GRAY);
+            EndDrawing();
+            continue;
+        }
+
         // --- GAMEPLAY INPUT & UPDATE ---
         camera.offset = { GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f };
         int nextX = player.x; int nextY = player.y;
@@ -418,12 +475,61 @@ int main()
             };
 
         if (IsKeyPressed(KEY_ESCAPE)) {
-            showPauseMenu = !showPauseMenu;
-            if (showPauseMenu) showInventory = false;
+            if (!aimingAbilityId.empty()) {
+                aimingAbilityId = "";
+            }
+            else {
+                showPauseMenu = !showPauseMenu;
+                if (showPauseMenu) {
+                    showInventory = false;
+                    showMenuHub = false;
+                }
+            }
         }
 
-        if (IsKeyPressed(KEY_I) && !showPauseMenu) {
-            showInventory = !showInventory;
+        if (IsKeyPressed(KEY_TAB) && !showPauseMenu) {
+            showMenuHub = !showMenuHub;
+            aimingAbilityId = "";
+        }
+
+        if (showMenuHub) {
+            if (IsKeyPressed(KEY_LEFT_BRACKET) || IsKeyPressed(KEY_LEFT)) {
+                currentMenuTab = (MenuTab)((currentMenuTab + MENU_TAB_COUNT - 1) % MENU_TAB_COUNT);
+            }
+            if (IsKeyPressed(KEY_RIGHT_BRACKET) || IsKeyPressed(KEY_RIGHT)) {
+                currentMenuTab = (MenuTab)((currentMenuTab + 1) % MENU_TAB_COUNT);
+            }
+        }
+
+        showInventory = showMenuHub && currentMenuTab == MENU_TAB_INVENTORY;
+
+        if (!showMenuHub && !showPauseMenu) {
+            for (int slot = 0; slot < (int)player.hotbar.size(); slot++) {
+                char keyChar = GetHotbarKeyLabel(slot);
+                int slotKey = KEY_ZERO + (keyChar - '0');
+                if (!IsKeyPressed(slotKey)) {
+                    continue;
+                }
+
+                std::string abilityId = player.hotbar[slot];
+                if (abilityId.empty() || !IsAbilityAvailable(player, abilityId)) {
+                    continue;
+                }
+
+                if (aimingAbilityId == abilityId) {
+                    aimingAbilityId = "";
+                    continue;
+                }
+
+                const AbilityDef* pressedAbility = FindAbility(abilityId);
+                if (pressedAbility != nullptr && pressedAbility->shape == ABILITY_SHAPE_SELF) {
+                    actionMessage = "Used " + pressedAbility->name + ". (Ability execution isn't wired in yet.)";
+                    aimingAbilityId = "";
+                }
+                else {
+                    aimingAbilityId = abilityId;
+                }
+            }
         }
 
         if (showPauseMenu) {
@@ -446,7 +552,7 @@ int main()
                 else if (pauseMenuSelection == 5) keepRunning = false;
             }
         }
-        else if (!showInventory) {
+        else if (!showMenuHub) {
             if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) nextX++;
             if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) nextX--;
             if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) nextY--;
@@ -463,7 +569,7 @@ int main()
                 }
             }
         }
-        else {
+        else if (showInventory) {
             if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
                 if (selectedItemIndex > 0) selectedItemIndex--;
             }
@@ -578,8 +684,9 @@ int main()
                     else if (action.type == AI_ACTION_ATTACK_PLAYER) {
                         int damage = CalculateEnemyAttackDamage(*actor, 0); // No player armor calc yet
                         player.hp -= damage;
-                        if (player.hp < 0) {
+                        if (player.hp <= 0) {
                             player.hp = 0;
+                            showDeathScreen = true;
                         }
                         actionMessage = "The " + GetEnemyName(*actor) + " hits you for " + std::to_string(damage) + " damage!";
                     }
@@ -596,7 +703,13 @@ int main()
             }
         }
 
-        if (!showPauseMenu && !showInventory && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        if (!showPauseMenu && !showMenuHub && !aimingAbilityId.empty() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            const AbilityDef* confirmedAbility = FindAbility(aimingAbilityId);
+            std::string confirmedName = confirmedAbility != nullptr ? confirmedAbility->name : "ability";
+            actionMessage = "Aimed " + confirmedName + ". (Ability execution isn't wired in yet.)";
+            aimingAbilityId = "";
+        }
+        else if (!showPauseMenu && !showInventory && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
             int clickX = (int)floorf(mouseWorldPos.x / (float)tileSize);
             int clickY = (int)floorf(mouseWorldPos.y / (float)tileSize);
@@ -621,6 +734,7 @@ int main()
                             else if (hpPercent >= 0.5f) actionMessage = "The " + enemyName + " has some cuts and bruises.";
                             else if (hpPercent >= 0.2f) actionMessage = "The " + enemyName + " looks severely wounded!";
                             else actionMessage = "The " + enemyName + " is clinging to life...";
+                            actionMessage += " It seems " + GetEnemyIntentText(enemy) + " toward you.";
                             break;
                         }
                         case MODE_SPEAK: actionMessage = "The " + enemyName + " growls hostility at you!"; break;
@@ -811,6 +925,16 @@ int main()
             }
         }
 
+        if (!aimingAbilityId.empty()) {
+            const AbilityDef* aimingAbility = FindAbility(aimingAbilityId);
+            if (aimingAbility != nullptr) {
+                Vector2 aimWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
+                int aimTileX = (int)floorf(aimWorldPos.x / (float)tileSize);
+                int aimTileY = (int)floorf(aimWorldPos.y / (float)tileSize);
+                DrawTargetingOverlay(player.x, player.y, aimTileX, aimTileY, *aimingAbility, tileSize);
+            }
+        }
+
         for (const auto& item : groundItems) {
             if (!enableFog || explored[item.x][item.y]) {
                 DrawText("?", item.x * tileSize + 6, item.y * tileSize + 2, tileSize, GOLD);
@@ -829,15 +953,20 @@ int main()
             }
         }
 
-        DrawText("@", player.x * tileSize + 4, player.y * tileSize + 2, tileSize, GREEN);
+        DrawText("@", player.x* tileSize + 4, player.y* tileSize + 2, tileSize, GREEN);
         EndMode2D();
 
-        // HUD / UI
-        int hudX = GetScreenWidth() - 250;
-        int hudY = 20;
-        DrawRectangle(hudX - 10, hudY, 250, 160, BLACK);
+        DrawHotbar(player);
 
-        DrawText(TextFormat("%s (%s)", player.name.c_str(), player.className.c_str()), hudX, hudY + 5, 16, GOLD);
+        // HUD / UI
+        float hudScale = GetUIScale();
+        int hudPanelW = (int)(340 * hudScale);
+        int hudPanelH = (int)(200 * hudScale);
+        int hudX = GetScreenWidth() - hudPanelW - (int)(20 * hudScale);
+        int hudY = (int)(20 * hudScale);
+        DrawRectangle(hudX - (int)(10 * hudScale), hudY, hudPanelW, hudPanelH, Fade(BLACK, 0.85f));
+
+        DrawText(TextFormat("%s (%s)", player.name.c_str(), player.className.c_str()), hudX, hudY + (int)(8 * hudScale), (int)(24 * hudScale), GOLD);
 
         Color modeColor = WHITE; const char* modeSymbol = "";
         switch (currentMode) {
@@ -847,76 +976,128 @@ int main()
         case MODE_STEAL: modeColor = PURPLE;  modeSymbol = "$"; break;
         }
 
-        DrawRectangle(hudX, hudY + 30, 20, 20, modeColor);
-        DrawText(modeSymbol, hudX + 5, hudY + 32, 16, BLACK);
-        DrawText(TextFormat("MODE: %s", modeNames[currentMode]), hudX + 30, hudY + 32, 16, modeColor);
+        int modeRowY = hudY + (int)(44 * hudScale);
+        int modeBoxSize = (int)(28 * hudScale);
+        DrawRectangle(hudX, modeRowY, modeBoxSize, modeBoxSize, modeColor);
+        DrawText(modeSymbol, hudX + (int)(modeBoxSize * 0.3f), modeRowY + (int)(modeBoxSize * 0.15f), (int)(20 * hudScale), BLACK);
+        DrawText(TextFormat("MODE: %s", modeNames[currentMode]), hudX + modeBoxSize + (int)(10 * hudScale), modeRowY + (int)(4 * hudScale), (int)(22 * hudScale), modeColor);
 
-        DrawRectangle(hudX, hudY + 60, 200, 18, DARKGRAY);
-        DrawRectangle(hudX, hudY + 60, (player.hp * 200) / std::max(1, player.maxHp), 18, RED);
-        DrawText(TextFormat("HP: %i/%i", player.hp, player.maxHp), hudX + 5, hudY + 61, 14, WHITE);
+        int barW = hudPanelW - (int)(20 * hudScale);
+        int barH = (int)(24 * hudScale);
+        int barFont = (int)(20 * hudScale);
 
-        DrawRectangle(hudX, hudY + 85, 200, 18, DARKGRAY);
-        DrawRectangle(hudX, hudY + 85, (player.stamina * 200) / std::max(1, player.maxStamina), 18, GREEN);
-        DrawText(TextFormat("SP: %i/%i", player.stamina, player.maxStamina), hudX + 5, hudY + 86, 14, WHITE);
+        int barY = hudY + (int)(90 * hudScale);
+        DrawRectangle(hudX, barY, barW, barH, DARKGRAY);
+        DrawRectangle(hudX, barY, (player.hp * barW) / std::max(1, player.maxHp), barH, RED);
+        DrawText(TextFormat("HP: %i/%i", player.hp, player.maxHp), hudX + (int)(6 * hudScale), barY + (int)(2 * hudScale), barFont, WHITE);
 
-        DrawRectangle(hudX, hudY + 110, 200, 18, DARKGRAY);
-        DrawRectangle(hudX, hudY + 110, (player.mana * 200) / std::max(1, player.maxMana), 18, BLUE);
-        DrawText(TextFormat("MP: %i/%i", player.mana, player.maxMana), hudX + 5, hudY + 111, 14, WHITE);
+        barY += (int)(32 * hudScale);
+        DrawRectangle(hudX, barY, barW, barH, DARKGRAY);
+        DrawRectangle(hudX, barY, (player.stamina * barW) / std::max(1, player.maxStamina), barH, GREEN);
+        DrawText(TextFormat("SP: %i/%i", player.stamina, player.maxStamina), hudX + (int)(6 * hudScale), barY + (int)(2 * hudScale), barFont, WHITE);
 
-        if (!actionMessage.empty()) {
-            int msgWidth = MeasureText(actionMessage.c_str(), 20);
-            DrawRectangle((GetScreenWidth() - msgWidth) / 2 - 10, GetScreenHeight() - 45, msgWidth + 20, 30, Fade(BLACK, 0.8f));
-            DrawText(actionMessage.c_str(), (GetScreenWidth() - msgWidth) / 2, GetScreenHeight() - 40, 20, RAYWHITE);
+        barY += (int)(32 * hudScale);
+        DrawRectangle(hudX, barY, barW, barH, DARKGRAY);
+        DrawRectangle(hudX, barY, (player.mana * barW) / std::max(1, player.maxMana), barH, BLUE);
+        DrawText(TextFormat("MP: %i/%i", player.mana, player.maxMana), hudX + (int)(6 * hudScale), barY + (int)(2 * hudScale), barFont, WHITE);
+
+        if (!aimingAbilityId.empty()) {
+            const AbilityDef* hudAimAbility = FindAbility(aimingAbilityId);
+            if (hudAimAbility != nullptr) {
+                std::string aimText = "AIMING: " + hudAimAbility->name + " (Esc cancels)";
+                DrawText(aimText.c_str(), hudX, barY + (int)(36 * hudScale), (int)(18 * hudScale), RED);
+            }
         }
 
-        if (showInventory) {
-            int invX = GetScreenWidth() / 2 - 250;
-            int invY = GetScreenHeight() / 2 - 200;
-            DrawRectangle(invX, invY, 500, 400, Fade(BLACK, 0.9f));
-            DrawRectangleLines(invX, invY, 500, 400, GOLD);
-            DrawText("INVENTORY (Press 'I' to close)", invX + 20, invY + 15, 20, GOLD);
-            DrawText("E: Equip | D: Drop | U: Unequip", invX + 20, invY + 370, 16, GRAY);
+        if (!actionMessage.empty()) {
+            float msgScale = GetUIScale();
+            int msgFontSize = (int)(26 * msgScale);
+            int msgWidth = MeasureText(actionMessage.c_str(), msgFontSize);
+            DrawRectangle((GetScreenWidth() - msgWidth) / 2 - (int)(12 * msgScale), GetScreenHeight() - (int)(60 * msgScale), msgWidth + (int)(24 * msgScale), (int)(40 * msgScale), Fade(BLACK, 0.8f));
+            DrawText(actionMessage.c_str(), (GetScreenWidth() - msgWidth) / 2, GetScreenHeight() - (int)(52 * msgScale), msgFontSize, RAYWHITE);
+        }
 
-            DrawText("EQUIPPED:", invX + 270, invY + 60, 18, GOLD);
-            int slotDrawY = invY + 90;
-            for (int s = 0; s < SLOT_SINGLE_COUNT; s++) {
-                if (!player.equippedSlots[s].IsEmpty()) {
-                    std::string eqName = GetGroundItemName(player.equippedSlots[s]);
-                    DrawText(eqName.c_str(), invX + 270, slotDrawY, 16, WHITE);
-                    slotDrawY += 22;
+        if (showMenuHub) {
+            float hubScale = GetUIScale();
+            int panelW = (int)(GetScreenWidth() * 0.82f);
+            int panelH = (int)(GetScreenHeight() * 0.82f);
+            int invX = GetScreenWidth() / 2 - panelW / 2;
+            int invY = GetScreenHeight() / 2 - panelH / 2;
+            DrawRectangle(invX, invY, panelW, panelH, Fade(BLACK, 0.9f));
+            DrawRectangleLines(invX, invY, panelW, panelH, GOLD);
+            DrawMenuTabBar(invX, invY, panelW, currentMenuTab);
+
+            int tabBarHeight = GetMenuTabBarHeight();
+            int footerHeight = GetMenuFooterHeight();
+            int contentY = invY + tabBarHeight + (int)(24 * hubScale);
+            int contentBottom = invY + panelH - footerHeight;
+            int lineFont = (int)(24 * hubScale);
+            int smallFont = (int)(20 * hubScale);
+
+            if (currentMenuTab == MENU_TAB_INVENTORY) {
+                DrawText("EQUIPPED:", invX + panelW / 2 + (int)(24 * hubScale), contentY, lineFont, GOLD);
+                int slotDrawY = contentY + (int)(lineFont * 1.5f);
+                for (int s = 0; s < SLOT_SINGLE_COUNT; s++) {
+                    if (!player.equippedSlots[s].IsEmpty()) {
+                        std::string eqName = GetGroundItemName(player.equippedSlots[s]);
+                        DrawText(eqName.c_str(), invX + panelW / 2 + (int)(24 * hubScale), slotDrawY, smallFont, WHITE);
+                        slotDrawY += (int)(smallFont * 1.5f);
+                    }
                 }
-            }
 
-            if (player.inventory.empty()) {
-                DrawText("Your inventory is empty.", invX + 20, invY + 60, 18, LIGHTGRAY);
+                if (player.inventory.empty()) {
+                    DrawText("Your inventory is empty.", invX + (int)(24 * hubScale), contentY, lineFont, LIGHTGRAY);
+                }
+                else {
+                    int rowHeight = (int)(38 * hubScale);
+                    for (size_t i = 0; i < player.inventory.size(); i++) {
+                        int lineY = contentY + (int)i * rowHeight;
+                        if (lineY > contentBottom) {
+                            break;
+                        }
+                        std::string itemName = GetGroundItemName(player.inventory[i]);
+                        Color itemColor = WHITE;
+                        if ((int)i == selectedItemIndex) {
+                            itemColor = YELLOW;
+                            DrawText(">", invX + (int)(18 * hubScale), lineY, lineFont, YELLOW);
+                        }
+                        std::string line = itemName + " x" + std::to_string(player.inventory[i].quantity);
+                        DrawText(line.c_str(), invX + (int)(48 * hubScale), lineY, lineFont, itemColor);
+                    }
+                }
+
+                DrawText("E: Equip   D: Drop   U: Unequip", invX + (int)(24 * hubScale), invY + panelH - footerHeight + (int)(10 * hubScale), smallFont, GRAY);
+            }
+            else if (currentMenuTab == MENU_TAB_ABILITIES) {
+                DrawAbilitiesTab(invX, invY, panelW, panelH, player);
+            }
+            else if (currentMenuTab == MENU_TAB_MAGIC) {
+                DrawMagicTab(invX, invY, panelW, panelH);
             }
             else {
-                for (size_t i = 0; i < player.inventory.size(); i++) {
-                    std::string itemName = GetGroundItemName(player.inventory[i]);
-                    Color itemColor = WHITE;
-                    if ((int)i == selectedItemIndex) {
-                        itemColor = YELLOW;
-                        DrawText(">", invX + 15, invY + 60 + (int)i * 25, 18, YELLOW);
-                    }
-                    std::string line = itemName + " x" + std::to_string(player.inventory[i].quantity);
-                    DrawText(line.c_str(), invX + 35, invY + 60 + (int)i * 25, 18, itemColor);
-                }
+                DrawCharacterTab(invX, invY, panelW, panelH, player);
             }
+
+            DrawText("Left/Right or [ / ] to switch tabs   |   Tab to close", invX + (int)(24 * hubScale), invY + panelH - (int)(34 * hubScale), smallFont, GRAY);
         }
 
         if (showPauseMenu) {
-            int menuWidth = 400; int menuHeight = 320;
+            float pauseScale = GetUIScale();
+            int menuWidth = (int)(460 * pauseScale); int menuHeight = (int)(400 * pauseScale);
             int menuX = GetScreenWidth() / 2 - menuWidth / 2;
             int menuY = GetScreenHeight() / 2 - menuHeight / 2;
             DrawRectangle(menuX, menuY, menuWidth, menuHeight, Fade(BLACK, 0.95f));
             DrawRectangleLines(menuX, menuY, menuWidth, menuHeight, GOLD);
-            DrawText("PAUSED", menuX + (menuWidth - MeasureText("PAUSED", 24)) / 2, menuY + 20, 24, GOLD);
+            int titleFont = (int)(30 * pauseScale);
+            DrawText("PAUSED", menuX + (menuWidth - MeasureText("PAUSED", titleFont)) / 2, menuY + (int)(24 * pauseScale), titleFont, GOLD);
 
             const char* pauseOptions[] = { "Resume", "Save Game", "Load Game", "Options", "Return to Title", "Quit Game" };
+            int optionFont = (int)(26 * pauseScale);
+            int rowHeight = (int)(48 * pauseScale);
             Vector2 mousePos = GetMousePosition();
             for (int i = 0; i < 6; i++) {
-                int optY = menuY + 75 + i * 35;
-                Rectangle optRect = { (float)menuX + 50, (float)optY - 2, (float)menuWidth - 100, 30 };
+                int optY = menuY + (int)(90 * pauseScale) + i * rowHeight;
+                Rectangle optRect = { (float)menuX + (60 * pauseScale), (float)optY - (4 * pauseScale), (float)menuWidth - (120 * pauseScale), (float)(rowHeight - 8 * pauseScale) };
                 if (CheckCollisionPointRec(mousePos, optRect)) {
                     pauseMenuSelection = i;
                     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -934,8 +1115,8 @@ int main()
                 }
 
                 Color optColor = (i == pauseMenuSelection) ? YELLOW : WHITE;
-                if (i == pauseMenuSelection) DrawText(">", menuX + 60, optY, 20, YELLOW);
-                DrawText(pauseOptions[i], menuX + 85, optY, 20, optColor);
+                if (i == pauseMenuSelection) DrawText(">", menuX + (int)(70 * pauseScale), optY, optionFont, YELLOW);
+                DrawText(pauseOptions[i], menuX + (int)(105 * pauseScale), optY, optionFont, optColor);
             }
         }
 

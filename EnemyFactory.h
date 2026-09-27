@@ -22,6 +22,10 @@ const EnemyArchetype* FindEnemyArchetype(const std::string& id);
 // Display name for an enemy, looked up from its archetype.
 std::string GetEnemyDisplayName(const Enemy& enemy);
 
+// Short readout of an enemy's disposition toward the player for the LOOK action: "hostile",
+// "friendly", "neutral", or "dead". Same living-vs-archetype faction check enemy AI already uses.
+std::string GetEnemyIntentText(const Enemy& enemy);
+
 // Armor rating for an enemy, looked up from its archetype. 0 if the archetype is unknown.
 int GetEnemyArmor(const Enemy& enemy);
 

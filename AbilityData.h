@@ -40,3 +40,6 @@ extern std::vector<AbilityDef> G_ABILITIES;
 
 // Single home for ability lookup by id. Null if the id is unknown.
 const AbilityDef* FindAbility(const std::string& id);
+
+// Derived from the ability's shape, not hand-authored per ability, so it can't drift out of sync.
+char GetAbilityIcon(const AbilityDef& ability);

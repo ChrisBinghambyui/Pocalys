@@ -138,13 +138,17 @@
     <ClCompile Include="FactionConflict.cpp" />
     <ClCompile Include="FactionData.cpp" />
     <ClCompile Include="FeatData.cpp" />
+    <ClCompile Include="HotbarUI.cpp" />
     <ClCompile Include="ItemData.cpp" />
     <ClCompile Include="LineOfSight.cpp" />
     <ClCompile Include="MaterialData.cpp" />
+    <ClCompile Include="MenuHubUI.cpp" />
     <ClCompile Include="RaceData.cpp" />
     <ClCompile Include="Rogue-Project.cpp" />
     <ClCompile Include="SkillData.cpp" />
+    <ClCompile Include="TargetingUI.cpp" />
     <ClCompile Include="TitleScreen.cpp" />
+    <ClCompile Include="UIScale.cpp" />
     <ClCompile Include="VariantData.cpp" />
     <ClCompile Include="WeaponData.cpp" />
   </ItemGroup>
@@ -168,14 +172,18 @@
     <ClInclude Include="FactionConflict.h" />
     <ClInclude Include="FactionData.h" />
     <ClInclude Include="FeatData.h" />
+    <ClInclude Include="HotbarUI.h" />
     <ClInclude Include="Item.h" />
     <ClInclude Include="ItemData.h" />
     <ClInclude Include="LineOfSight.h" />
     <ClInclude Include="MaterialData.h" />
+    <ClInclude Include="MenuHubUI.h" />
     <ClInclude Include="Player.h" />
     <ClInclude Include="RaceData.h" />
     <ClInclude Include="SkillData.h" />
+    <ClInclude Include="TargetingUI.h" />
     <ClInclude Include="TitleScreen.h" />
+    <ClInclude Include="UIScale.h" />
     <ClInclude Include="VariantData.h" />
     <ClInclude Include="WeaponData.h" />
   </ItemGroup>

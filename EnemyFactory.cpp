@@ -111,6 +111,32 @@ std::string GetEnemyDisplayName(const Enemy& enemy)
     return name;
 }
 
+std::string GetEnemyIntentText(const Enemy& enemy)
+{
+    if (enemy.isDead)
+    {
+        return "dead";
+    }
+
+    const EnemyArchetype* archetype = FindEnemyArchetype(enemy.archetypeId);
+    if (archetype == nullptr)
+    {
+        return "unreadable";
+    }
+
+    std::vector<std::string> livingTag = { "living" };
+    FactionStance stance = GetFactionStance(archetype->factionIds, livingTag);
+    if (stance == STANCE_HOSTILE)
+    {
+        return "hostile";
+    }
+    if (stance == STANCE_ALLIED)
+    {
+        return "friendly";
+    }
+    return "neutral";
+}
+
 
 int GetEnemyArmor(const Enemy& enemy)
 {
