@@ -5,6 +5,7 @@
 #include "MaterialData.h"
 #include "Durability.h"
 #include "ItemData.h"
+#include "SkillScaling.h"
 
 int CalculateUnarmedDamage(const Player& attacker)
 {
@@ -71,8 +72,11 @@ static std::string GetAttackVerb(const std::string& damageType)
     return "hit";
 }
 
-const int SHIELD_ATTACK_ROLL_PENALTY = 5;
-const int DUAL_WIELD_OFFHAND_ROLL_PENALTY = 20; // For the future Dual Strike ability. Bump only ever uses the main hand, so this never applies here.
+// Phase-1 placeholder: these used to be roll penalties before landing a hit became purely
+// positional. Until real-time swing timing exists, they subtract from raw damage instead of
+// speed. Convert to swing-speed penalties once the twin-stick conversion adds real attack timing.
+const int SHIELD_ATTACK_DAMAGE_PENALTY = 1;
+const int DUAL_WIELD_OFFHAND_DAMAGE_PENALTY = 3; // For the future Dual Strike ability. Bump only ever uses the main hand, so this never applies here.
 
 bool IsShieldEquipped(const Player& player)
 {
@@ -102,7 +106,71 @@ bool IsDualWielding(const Player& player)
     return true;
 }
 
-int RollWeaponDamage(const Item& weapon, int str, int agi, bool maxRoll, int ammoBonus)
+const float SWING_COOLDOWN_UNARMED = 0.40f;
+const float SWING_COOLDOWN_LIGHT = 0.35f;
+const float SWING_COOLDOWN_MEDIUM = 0.55f;
+const float SWING_COOLDOWN_HEAVY = 0.90f;
+
+float GetAttackCooldownSeconds(const Player& attacker)
+{
+    const Item& weapon = attacker.equippedSlots[SLOT_MAIN_HAND];
+    float baseCooldown = SWING_COOLDOWN_UNARMED;
+    int skillId = SKILL_HAND_TO_HAND;
+
+    bool armed = false;
+    if (weapon.weaponTypeId >= 0 && weapon.weaponTypeId < (int)G_WEAPON_TYPES.size())
+    {
+        if (G_WEAPON_TYPES[weapon.weaponTypeId].category != WEAPON_RANGED && IsUsable(weapon.condition))
+        {
+            armed = true;
+        }
+    }
+
+    if (armed)
+    {
+        const WeaponType& type = G_WEAPON_TYPES[weapon.weaponTypeId];
+        skillId = type.skillId;
+        if (type.category == WEAPON_LIGHT)
+        {
+            baseCooldown = SWING_COOLDOWN_LIGHT;
+        }
+        else if (type.category == WEAPON_MEDIUM)
+        {
+            baseCooldown = SWING_COOLDOWN_MEDIUM;
+        }
+        else
+        {
+            baseCooldown = SWING_COOLDOWN_HEAVY;
+        }
+    }
+
+    int skillLevel = 0;
+    if (skillId >= 0 && skillId < (int)attacker.skills.size())
+    {
+        skillLevel = attacker.skills[skillId].level;
+    }
+
+    return baseCooldown / GetSkillSpeedMultiplier(skillLevel);
+}
+
+const int IMPROVISED_ATTACK_PERCENT = 35; // Pommel, haft, or flat-of-the-blade attacks land at this percent of a normal hit
+const int THRUST_ARMOR_PIERCE = 1;        // Piercing finds the gaps in armor
+const int BASH_ARMOR_PIERCE = 2;          // Crushing rattles through plate and shell. Both move onto the ability rows later.
+
+static int GetAttackArmorPierce(DamageType attackType)
+{
+    if (attackType == DAMAGE_PIERCING)
+    {
+        return THRUST_ARMOR_PIERCE;
+    }
+    if (attackType == DAMAGE_CRUSHING)
+    {
+        return BASH_ARMOR_PIERCE;
+    }
+    return 0;
+}
+
+int RollWeaponDamage(const Item& weapon, DamageType attackType, int str, int agi, bool maxRoll, int ammoBonus)
 {
     if (weapon.weaponTypeId < 0 || weapon.weaponTypeId >= (int)G_WEAPON_TYPES.size())
     {
@@ -110,16 +178,27 @@ int RollWeaponDamage(const Item& weapon, int str, int agi, bool maxRoll, int amm
     }
     const WeaponType& type = G_WEAPON_TYPES[weapon.weaponTypeId];
 
+    // Primary type rolls the primary dice, secondary type rolls the secondary dice. Anything else is
+    // improvised: primary dice again, scaled down after the bonuses below.
+    AttackRank rank = GetAttackRank(type, attackType);
+    int diceCount = type.primaryDiceCount;
+    int diceSides = type.primaryDiceSides;
+    if (rank == ATTACK_RANK_SECONDARY)
+    {
+        diceCount = type.secondaryDiceCount;
+        diceSides = type.secondaryDiceSides;
+    }
+
     int damage = 0;
     if (maxRoll)
     {
-        damage = type.primaryDiceCount * type.primaryDiceSides;
+        damage = diceCount * diceSides;
     }
     else
     {
-        for (int i = 0; i < type.primaryDiceCount; i++)
+        for (int i = 0; i < diceCount; i++)
         {
-            damage += GetRandomValue(1, type.primaryDiceSides);
+            damage += GetRandomValue(1, diceSides);
         }
     }
 
@@ -147,7 +226,15 @@ int RollWeaponDamage(const Item& weapon, int str, int agi, bool maxRoll, int amm
         }
     }
 
-    damage += GetConditionDamagePenalty(weapon.condition);
+
+    if (rank == ATTACK_RANK_IMPROVISED)
+    {
+        damage = (damage * IMPROVISED_ATTACK_PERCENT) / 100;
+        if (damage < 1)
+        {
+            damage = 1; // A pommel strike still lands, armor decides whether it matters
+        }
+    }
 
     if (damage < 0)
     {
@@ -156,7 +243,33 @@ int RollWeaponDamage(const Item& weapon, int str, int agi, bool maxRoll, int amm
     return damage;
 }
 
-bool ResolveBumpAttack(Player& attacker, Enemy& defender, std::string& actionMessage)
+DamageType ChooseSwingDamageType(const Player& attacker, float moveX, float moveY)
+{
+    const Item& weapon = attacker.equippedSlots[SLOT_MAIN_HAND];
+    DamageType primaryType = DAMAGE_CRUSHING; // Fists
+    if (weapon.weaponTypeId >= 0 && weapon.weaponTypeId < (int)G_WEAPON_TYPES.size())
+    {
+        primaryType = ParseDamageType(G_WEAPON_TYPES[weapon.weaponTypeId].primaryDamageType);
+    }
+
+    if (moveX == 0.0f && moveY == 0.0f)
+    {
+        return primaryType; // Standing still throws the weapon's best swing
+    }
+
+    float alignment = moveX * attacker.facingX + moveY * attacker.facingY;
+    if (alignment > 0.5f)
+    {
+        return DAMAGE_PIERCING; // Stepping toward the cursor lunges
+    }
+    if (alignment < -0.5f)
+    {
+        return DAMAGE_CRUSHING; // Backing off snaps the pommel or haft out
+    }
+    return DAMAGE_SLASHING; // Moving across the target swings wide
+}
+
+bool ResolveBumpAttack(Player& attacker, Enemy& defender, std::string& actionMessage, DamageType attackType)
 {
     std::string enemyName = GetEnemyDisplayName(defender);
     Item& weapon = attacker.equippedSlots[SLOT_MAIN_HAND];
@@ -176,7 +289,7 @@ bool ResolveBumpAttack(Player& attacker, Enemy& defender, std::string& actionMes
     if (armed)
     {
         skillId = G_WEAPON_TYPES[weapon.weaponTypeId].skillId;
-        verb = GetAttackVerb(G_WEAPON_TYPES[weapon.weaponTypeId].primaryDamageType);
+        verb = GetAttackVerb(GetDamageTypeName(attackType));
     }
 
     if (skillId < 0 || skillId >= (int)attacker.skills.size())
@@ -185,58 +298,37 @@ bool ResolveBumpAttack(Player& attacker, Enemy& defender, std::string& actionMes
         return false;
     }
 
-    int rollPenalty = 0;
-    if (armed)
-    {
-        rollPenalty += GetConditionRollPenalty(weapon.condition);
-        if (!G_WEAPON_TYPES[weapon.weaponTypeId].twoHanded && IsShieldEquipped(attacker))
-        {
-            rollPenalty += SHIELD_ATTACK_ROLL_PENALTY;
-        }
-    }
-
-    // Roll under: effective skill is skill plus Luck bonus. 1-2 always hits, 98-99 always misses.
-    int effectiveSkill = attacker.skills[skillId].level + (attacker.lck / 10);
-    int roll = GetRandomValue(1, 100);
-    bool critSuccess = false;
-    bool critFail = false;
-    bool hit = false;
-    if (roll <= 2)
-    {
-        critSuccess = true;
-        hit = true;
-    }
-    else if (roll >= 98)
-    {
-        critFail = true;
-    }
-    else if (roll + rollPenalty <= effectiveSkill)
-    {
-        hit = true;
-    }
-
-    if (critFail)
-    {
-        actionMessage = "You fumble your attack!";
-        return false;
-    }
-    if (!hit)
-    {
-        actionMessage = "You " + verb + " at the " + enemyName + " and miss.";
-        return false;
-    }
+    // Bump attacks always land now: hitting is positional, not a roll. Skill affects what a
+    // landed hit does (damage, crit chance) instead of whether it happens. See SkillScaling.h.
+    int skillLevel = attacker.skills[skillId].level;
+    bool critSuccess = GetRandomValue(1, 100) <= GetSkillCritChancePercent(skillLevel);
 
     int damage = 0;
     if (armed)
     {
-        damage = RollWeaponDamage(weapon, attacker.str, attacker.agi, critSuccess);
+        damage = RollWeaponDamage(weapon, attackType, attacker.str, attacker.agi, critSuccess);
     }
     else
     {
         damage = CalculateUnarmedDamage(attacker);
     }
 
+    damage = (int)(damage * GetSkillDamageMultiplier(skillLevel));
+
+    if (armed && !G_WEAPON_TYPES[weapon.weaponTypeId].twoHanded && IsShieldEquipped(attacker))
+    {
+        damage -= SHIELD_ATTACK_DAMAGE_PENALTY;
+    }
+
     int armor = GetEnemyArmor(defender);
+    if (armed)
+    {
+        armor -= GetAttackArmorPierce(attackType);
+        if (armor < 0)
+        {
+            armor = 0;
+        }
+    }
     if (critSuccess)
     {
         armor = 0; // Critical hits ignore AR

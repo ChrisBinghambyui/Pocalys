@@ -21,6 +21,26 @@ int GetMenuFooterHeight()
     return (int)(70 * GetUIScale());
 }
 
+int GetMenuTabAtPoint(int panelX, int panelY, int panelW, int pointX, int pointY)
+{
+    int tabBarHeight = GetMenuTabBarHeight();
+    int tabWidth = panelW / MENU_TAB_COUNT;
+    if (pointY < panelY || pointY >= panelY + tabBarHeight)
+    {
+        return -1;
+    }
+    if (pointX < panelX)
+    {
+        return -1;
+    }
+    int index = (pointX - panelX) / tabWidth;
+    if (index >= MENU_TAB_COUNT)
+    {
+        return -1;
+    }
+    return index;
+}
+
 void DrawMenuTabBar(int panelX, int panelY, int panelW, MenuTab currentTab)
 {
     float uiScale = GetUIScale();

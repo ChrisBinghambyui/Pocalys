@@ -31,6 +31,12 @@ const int MAP_WIDTH = 80;
 const int MAP_HEIGHT = 45;
 const int MAX_ROOMS = 15;
 const int PLAYER_VISION_RADIUS = 8; // Tiles of line-of-sight range for fog-of-war reveal
+const float PLAYER_MOVE_SPEED = 5.0f;       // Tiles per second, placeholder until playtested
+const float PLAYER_COLLISION_RADIUS = 0.3f; // Tile units, checked against wall tiles only for now
+const float PICKUP_RANGE = 0.8f;            // Tile units, distance for G to reach a ground item
+const float MELEE_ATTACK_RANGE = 1.2f;      // Tile units, distance for a left-click attack to reach an enemy
+const float MELEE_ATTACK_FACING_COS = 0.5f; // Minimum dot product between facing and to-enemy direction (~120 degree cone)
+const float INTERACT_RANGE = 1.6f;          // Tile units, reach for SPEAK / GRAB / STEAL. LOOK ignores it. 1.6 covers a diagonal neighbor.
 
 enum GameState {
     STATE_TITLE,
@@ -199,6 +205,35 @@ void ApplyProfileToPlayer(const CharacterProfile& profile, Player& player) {
     }
 }
 
+// Circle-vs-tile check for player wall collision. Cheap approximation: test the four cardinal
+// points of the circle instead of every tile it could overlap. Good enough for a modest collision
+// radius against grid-aligned walls.
+static bool IsWorldPositionWalkable(TileType map[MAP_WIDTH][MAP_HEIGHT], float centerX, float centerY, float radius)
+{
+    float checkPoints[4][2] = {
+        { centerX - radius, centerY },
+        { centerX + radius, centerY },
+        { centerX, centerY - radius },
+        { centerX, centerY + radius }
+    };
+
+    for (int i = 0; i < 4; i++)
+    {
+        int tileX = (int)checkPoints[i][0];
+        int tileY = (int)checkPoints[i][1];
+        if (tileX < 0 || tileX >= MAP_WIDTH || tileY < 0 || tileY >= MAP_HEIGHT)
+        {
+            return false;
+        }
+        TileType tile = map[tileX][tileY];
+        if (tile != TILE_FLOOR && tile != TILE_STAIR_UP && tile != TILE_STAIR_DOWN)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 
 int main()
@@ -465,7 +500,21 @@ int main()
 
         // --- GAMEPLAY INPUT & UPDATE ---
         camera.offset = { GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f };
-        int nextX = player.x; int nextY = player.y;
+
+
+        if (player.attackCooldown > 0.0f)
+        {
+            player.attackCooldown -= GetFrameTime();
+        }
+
+        Vector2 mouseWorldForFacing = GetScreenToWorld2D(GetMousePosition(), camera);
+        float facingDeltaX = mouseWorldForFacing.x - (player.x * tileSize + tileSize / 2.0f);
+        float facingDeltaY = mouseWorldForFacing.y - (player.y * tileSize + tileSize / 2.0f);
+        float facingLength = sqrtf(facingDeltaX * facingDeltaX + facingDeltaY * facingDeltaY);
+        if (facingLength > 0.001f) {
+            player.facingX = facingDeltaX / facingLength;
+            player.facingY = facingDeltaY / facingLength;
+        }
 
         auto isOpaque = [&](int checkX, int checkY) -> bool {
             if (checkX < 0 || checkX >= MAP_WIDTH || checkY < 0 || checkY >= MAP_HEIGHT) {
@@ -502,6 +551,7 @@ int main()
         }
 
         showInventory = showMenuHub && currentMenuTab == MENU_TAB_INVENTORY;
+        bool menuOpen = showPauseMenu || showMenuHub;
 
         if (!showMenuHub && !showPauseMenu) {
             for (int slot = 0; slot < (int)player.hotbar.size(); slot++) {
@@ -552,20 +602,95 @@ int main()
                 else if (pauseMenuSelection == 5) keepRunning = false;
             }
         }
-        else if (!showMenuHub) {
-            if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) nextX++;
-            if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) nextX--;
-            if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) nextY--;
-            if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) nextY++;
+        else if (!menuOpen) {
+            float moveInputX = 0.0f;
+            float moveInputY = 0.0f;
+            if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) moveInputX += 1.0f;
+            if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) moveInputX -= 1.0f;
+            if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) moveInputY += 1.0f;
+            if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) moveInputY -= 1.0f;
+
+            if (moveInputX != 0.0f || moveInputY != 0.0f) {
+                float inputLength = sqrtf(moveInputX * moveInputX + moveInputY * moveInputY);
+                moveInputX /= inputLength;
+                moveInputY /= inputLength;
+
+                float moveDistance = PLAYER_MOVE_SPEED * GetFrameTime();
+
+                float candidateX = player.x + moveInputX * moveDistance;
+                if (!enableFog || IsWorldPositionWalkable(map, candidateX + 0.5f, player.y + 0.5f, PLAYER_COLLISION_RADIUS)) {
+                    player.x = candidateX;
+                }
+
+                float candidateY = player.y + moveInputY * moveDistance;
+                if (!enableFog || IsWorldPositionWalkable(map, player.x + 0.5f, candidateY + 0.5f, PLAYER_COLLISION_RADIUS)) {
+                    player.y = candidateY;
+                }
+            }
 
             if (IsKeyPressed(KEY_G)) {
                 for (auto it = groundItems.begin(); it != groundItems.end(); ++it) {
-                    if (it->x == player.x && it->y == player.y) {
+                    float itemCenterX = (float)it->x + 0.5f;
+                    float itemCenterY = (float)it->y + 0.5f;
+                    float dx = itemCenterX - (player.x + 0.5f);
+                    float dy = itemCenterY - (player.y + 0.5f);
+                    if (dx * dx + dy * dy <= PICKUP_RANGE * PICKUP_RANGE) {
                         player.inventory.push_back(it->item);
                         actionMessage = "Picked up item.";
                         groundItems.erase(it);
                         break;
                     }
+                }
+            }
+
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !aimingAbilityId.empty())
+            {
+                const AbilityDef* firedAbility = FindAbility(aimingAbilityId);
+                std::string firedName = "ability";
+                if (firedAbility != nullptr)
+                {
+                    firedName = firedAbility->name;
+                }
+                actionMessage = "Fired " + firedName + ". (Ability execution isn't wired in yet.)";
+                aimingAbilityId = "";
+            }
+            else if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && player.attackCooldown <= 0.0f)
+            {
+                float playerCenterX = player.x + 0.5f;
+                float playerCenterY = player.y + 0.5f;
+
+                Enemy* targetEnemy = nullptr;
+                float closestDistSq = MELEE_ATTACK_RANGE * MELEE_ATTACK_RANGE;
+
+                for (size_t i = 0; i < enemies.size(); i++) {
+                    if (enemies[i].isDead) {
+                        continue;
+                    }
+
+                    float toEnemyX = ((float)enemies[i].x + 0.5f) - playerCenterX;
+                    float toEnemyY = ((float)enemies[i].y + 0.5f) - playerCenterY;
+                    float distSq = toEnemyX * toEnemyX + toEnemyY * toEnemyY;
+                    if (distSq > closestDistSq) {
+                        continue;
+                    }
+
+                    float dist = sqrtf(distSq);
+                    if (dist > 0.001f) {
+                        float facingDot = (toEnemyX / dist) * player.facingX + (toEnemyY / dist) * player.facingY;
+                        if (facingDot < MELEE_ATTACK_FACING_COS) {
+                            continue;
+                        }
+                    }
+
+                    closestDistSq = distSq;
+                    targetEnemy = &enemies[i];
+                }
+
+                player.attackCooldown = GetAttackCooldownSeconds(player); // A whiff costs the same time as a hit
+
+                if (targetEnemy != nullptr) {
+                    DamageType swingType = ChooseSwingDamageType(player, moveInputX, moveInputY);
+                    ResolveBumpAttack(player, *targetEnemy, actionMessage, swingType);
                 }
             }
         }
@@ -581,7 +706,7 @@ int main()
             if (IsKeyPressed(KEY_D)) {
                 if (!player.inventory.empty() && selectedItemIndex < (int)player.inventory.size()) {
                     GroundItem dropped;
-                    dropped.x = player.x; dropped.y = player.y;
+                    dropped.x = (int)(player.x + 0.5f); dropped.y = (int)(player.y + 0.5f);
                     dropped.item = player.inventory[selectedItemIndex];
                     groundItems.push_back(dropped);
                     player.inventory.erase(player.inventory.begin() + selectedItemIndex);
@@ -630,93 +755,33 @@ int main()
             }
         }
 
-        if (nextX != player.x || nextY != player.y) {
-            bool enemyBlocking = false;
-            for (auto it = enemies.begin(); it != enemies.end(); ++it) {
-                if (it->x == nextX && it->y == nextY && !it->isDead) {
-                    enemyBlocking = true;
-                    ResolveBumpAttack(player, *it, actionMessage);
-                    break;
-                }
-            }
+        // Enemy AI is intentionally frozen this pass: the old energy/turn system fired off a
+       // discrete player move, which no longer exists. Converting AIBrain decisions to per-frame
+       // movement and attack cooldowns is the next sub-phase, once movement and combat feel right.
 
-            bool playerMoved = false;
-            if (!enableFog || (!enemyBlocking && (map[nextX][nextY] == TILE_FLOOR || map[nextX][nextY] == TILE_STAIR_UP || map[nextX][nextY] == TILE_STAIR_DOWN))) {
-                player.x = nextX;
-                player.y = nextY;
-                playerMoved = true;
-                if (!enemyBlocking) actionMessage = "";
-            }
-
-            if (enemyBlocking || playerMoved) {
-                auto isWalkable = [&](int checkX, int checkY) -> bool {
-                    if (checkX < 0 || checkX >= MAP_WIDTH || checkY < 0 || checkY >= MAP_HEIGHT) {
-                        return false;
-                    }
-                    TileType tile = map[checkX][checkY];
-                    if (tile != TILE_FLOOR && tile != TILE_STAIR_UP && tile != TILE_STAIR_DOWN) {
-                        return false;
-                    }
-                    if (checkX == player.x && checkY == player.y) {
-                        return false;
-                    }
-                    for (size_t e = 0; e < enemies.size(); e++) {
-                        if (!enemies[e].isDead && enemies[e].x == checkX && enemies[e].y == checkY) {
-                            return false;
-                        }
-                    }
-                    return true;
-                    };
-
-                std::vector<Enemy*> readyEnemies = AdvanceEnemyEnergy(enemies);
-                for (size_t i = 0; i < readyEnemies.size(); i++) {
-                    Enemy* actor = readyEnemies[i];
-                    if (actor->isDead) {
-                        continue;
-                    }
-
-                    AIAction action = DecideEnemyAction(*actor, actor->homeX, actor->homeY, enemies, player, isWalkable, isOpaque);
-
-                    if (action.type == AI_ACTION_MOVE) {
-                        actor->x += action.moveX;
-                        actor->y += action.moveY;
-                    }
-                    else if (action.type == AI_ACTION_ATTACK_PLAYER) {
-                        int damage = CalculateEnemyAttackDamage(*actor, 0); // No player armor calc yet
-                        player.hp -= damage;
-                        if (player.hp <= 0) {
-                            player.hp = 0;
-                            showDeathScreen = true;
-                        }
-                        actionMessage = "The " + GetEnemyName(*actor) + " hits you for " + std::to_string(damage) + " damage!";
-                    }
-                    else if (action.type == AI_ACTION_ATTACK_ENEMY && action.targetEnemy != nullptr) {
-                        int armor = GetEnemyArmor(*action.targetEnemy);
-                        int damage = CalculateEnemyAttackDamage(*actor, armor);
-                        action.targetEnemy->hp -= damage;
-                        if (action.targetEnemy->hp <= 0) {
-                            action.targetEnemy->hp = 0;
-                            action.targetEnemy->isDead = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!showPauseMenu && !showMenuHub && !aimingAbilityId.empty() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            const AbilityDef* confirmedAbility = FindAbility(aimingAbilityId);
-            std::string confirmedName = confirmedAbility != nullptr ? confirmedAbility->name : "ability";
-            actionMessage = "Aimed " + confirmedName + ". (Ability execution isn't wired in yet.)";
-            aimingAbilityId = "";
-        }
-        else if (!showPauseMenu && !showInventory && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+       if (!menuOpen && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && !aimingAbilityId.empty())
+       {
+           aimingAbilityId = "";
+           actionMessage = "Aim cancelled.";
+       }
+       else if (!menuOpen && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+       {
             Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
             int clickX = (int)floorf(mouseWorldPos.x / (float)tileSize);
             int clickY = (int)floorf(mouseWorldPos.y / (float)tileSize);
             bool foundSomething = false;
 
+            float reachDeltaX = ((float)clickX + 0.5f) - (player.x + 0.5f);
+            float reachDeltaY = ((float)clickY + 0.5f) - (player.y + 0.5f);
+            bool inReach = (reachDeltaX * reachDeltaX + reachDeltaY * reachDeltaY) <= INTERACT_RANGE * INTERACT_RANGE;
+            if (currentMode != MODE_LOOK && !inReach)
+            {
+                actionMessage = "Too far away.";
+                foundSomething = true; // Skips every branch below
+            }
+
             for (const auto& enemy : enemies) {
-                if (enemy.x == clickX && enemy.y == clickY && (!enableFog || explored[clickX][clickY])) {
+                if (!foundSomething && enemy.x == clickX && enemy.y == clickY && (!enableFog || explored[clickX][clickY])) {
                     std::string enemyName = GetEnemyName(enemy);
                     if (enemy.isDead) {
                         switch (currentMode) {
@@ -763,7 +828,7 @@ int main()
                 }
             }
 
-            if (!foundSomething && clickX == player.x && clickY == player.y) {
+            if (!foundSomething && clickX == (int)(player.x + 0.5f) && clickY == (int)(player.y + 0.5f)) {
                 switch (currentMode) {
                 case MODE_LOOK:  actionMessage = "That's you (" + player.name + "). You're doing great."; break;
                 case MODE_SPEAK: actionMessage = "Talking to yourself again?"; break;
@@ -826,9 +891,13 @@ int main()
         camera.target.x += (targetX - camera.target.x) * 10.0f * GetFrameTime();
         camera.target.y += (targetY - camera.target.y) * 10.0f * GetFrameTime();
 
-        if (IsKeyPressed(KEY_SPACE)) {
-            bool wentDown = (map[player.x][player.y] == TILE_STAIR_DOWN);
-            bool wentUp = (map[player.x][player.y] == TILE_STAIR_UP && currentFloor > 0);
+        if (IsKeyPressed(KEY_SPACE) && !menuOpen) {
+            // Checked against the player's collision center (x+0.5, y+0.5), matching where they
+            // actually stand. Raw player.x/y was the bug, it needed a half-tile overshoot to register.
+            int playerTileX = (int)(player.x + 0.5f);
+            int playerTileY = (int)(player.y + 0.5f);
+            bool wentDown = (map[playerTileX][playerTileY] == TILE_STAIR_DOWN);
+            bool wentUp = (map[playerTileX][playerTileY] == TILE_STAIR_UP && currentFloor > 0);
 
             if (wentDown || wentUp) {
                 PerformFloorTransition(wentDown);
@@ -878,15 +947,17 @@ int main()
 
         for (int i = -PLAYER_VISION_RADIUS; i <= PLAYER_VISION_RADIUS; i++) {
             for (int j = -PLAYER_VISION_RADIUS; j <= PLAYER_VISION_RADIUS; j++) {
-                int viewX = player.x + i;
-                int viewY = player.y + j;
+                int playerCenterTileX = (int)(player.x + 0.5f);
+                int playerCenterTileY = (int)(player.y + 0.5f);
+                int viewX = playerCenterTileX + i;
+                int viewY = playerCenterTileY + j;
                 if (viewX < 0 || viewX >= MAP_WIDTH || viewY < 0 || viewY >= MAP_HEIGHT) {
                     continue;
                 }
                 if (i * i + j * j > PLAYER_VISION_RADIUS * PLAYER_VISION_RADIUS) {
                     continue;
                 }
-                if (HasLineOfSight(player.x, player.y, viewX, viewY, isOpaque)) {
+                if (HasLineOfSight(playerCenterTileX, playerCenterTileY, viewX, viewY, isOpaque)) {
                     explored[viewX][viewY] = true;
                 }
             }
@@ -1004,7 +1075,7 @@ int main()
         if (!aimingAbilityId.empty()) {
             const AbilityDef* hudAimAbility = FindAbility(aimingAbilityId);
             if (hudAimAbility != nullptr) {
-                std::string aimText = "AIMING: " + hudAimAbility->name + " (Esc cancels)";
+                std::string aimText = "AIMING: " + hudAimAbility->name + " (Esc or right click cancels)";
                 DrawText(aimText.c_str(), hudX, barY + (int)(36 * hudScale), (int)(18 * hudScale), RED);
             }
         }
@@ -1026,6 +1097,16 @@ int main()
             DrawRectangle(invX, invY, panelW, panelH, Fade(BLACK, 0.9f));
             DrawRectangleLines(invX, invY, panelW, panelH, GOLD);
             DrawMenuTabBar(invX, invY, panelW, currentMenuTab);
+
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                Vector2 tabMouse = GetMousePosition();
+                int clickedTab = GetMenuTabAtPoint(invX, invY, panelW, (int)tabMouse.x, (int)tabMouse.y);
+                if (clickedTab >= 0)
+                {
+                    currentMenuTab = (MenuTab)clickedTab;
+                }
+            }
 
             int tabBarHeight = GetMenuTabBarHeight();
             int footerHeight = GetMenuFooterHeight();

@@ -9,6 +9,21 @@ enum WeaponCategory {
     WEAPON_RANGED
 };
 
+enum DamageType
+{
+    DAMAGE_SLASHING,
+    DAMAGE_PIERCING,
+    DAMAGE_CRUSHING
+};
+
+// How well a weapon suits a damage type. Every weapon can attack with all three.
+enum AttackRank
+{
+    ATTACK_RANK_PRIMARY,   // The weapon's primaryDamageType, rolls the primary dice
+    ATTACK_RANK_SECONDARY, // The weapon's secondaryDamageType, rolls the secondary dice
+    ATTACK_RANK_IMPROVISED // Neither: pommel, haft, flat of the blade. Primary dice at a reduced percent.
+};
+
 struct WeaponType
 {
     int id; // Matches the loose numbering you were sketching (2=dagger, 3=sword, etc.)
@@ -30,6 +45,11 @@ struct WeaponType
 };
 
 extern std::vector<WeaponType> G_WEAPON_TYPES;
+
+// The damage type strings on WeaponType stay the source of truth. These read them on demand.
+DamageType ParseDamageType(const std::string& name);
+std::string GetDamageTypeName(DamageType type);
+AttackRank GetAttackRank(const WeaponType& weapon, DamageType type);
 
 // Call once at startup. Fills skillId on every weapon type by matching its skill name.
 void ResolveWeaponSkillIds();

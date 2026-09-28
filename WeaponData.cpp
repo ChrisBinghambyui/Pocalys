@@ -23,6 +23,45 @@ std::vector<WeaponType> G_WEAPON_TYPES = {
     { 16, "Crossbow",     WEAPON_RANGED, "Marksman",     1, 6,  "Piercing", 1, 6,  "Piercing", true,  false, false, false, { "quick_shot", "aimed_shot" } } 
 };
 
+DamageType ParseDamageType(const std::string& name)
+{
+    if (name == "Slashing")
+    {
+        return DAMAGE_SLASHING;
+    }
+    if (name == "Piercing")
+    {
+        return DAMAGE_PIERCING;
+    }
+    return DAMAGE_CRUSHING;
+}
+
+std::string GetDamageTypeName(DamageType type)
+{
+    if (type == DAMAGE_SLASHING)
+    {
+        return "Slashing";
+    }
+    if (type == DAMAGE_PIERCING)
+    {
+        return "Piercing";
+    }
+    return "Crushing";
+}
+
+AttackRank GetAttackRank(const WeaponType& weapon, DamageType type)
+{
+    if (ParseDamageType(weapon.primaryDamageType) == type)
+    {
+        return ATTACK_RANK_PRIMARY;
+    }
+    if (ParseDamageType(weapon.secondaryDamageType) == type)
+    {
+        return ATTACK_RANK_SECONDARY;
+    }
+    return ATTACK_RANK_IMPROVISED;
+}
+
 void ResolveWeaponSkillIds()
 {
     for (size_t i = 0; i < G_WEAPON_TYPES.size(); i++)

@@ -18,8 +18,13 @@ struct Player {
     std::string birthsign;
     std::string raceId; // Key into G_RACES
 
-    int x;
-    int y;
+    float x; // Tile-space position, continuous now. Integer part matches the old per-tile grid coordinate.
+    float y;
+
+    float facingX = 1.0f; // Unit vector toward the mouse cursor, recomputed every frame. Aims melee attacks.
+    float facingY = 0.0f;
+
+    float attackCooldown = 0.0f; // Seconds until the next swing is allowed. Counts down in the gameplay update.
 
     // Core Character Progression
     int level = 1;
