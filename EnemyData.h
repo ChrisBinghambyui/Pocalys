@@ -1,8 +1,25 @@
 #pragma once
 #include "raylib.h"
-#include "EnemyAI.h"
 #include <string>
 #include <vector>
+
+// LEGACY. Only picks a fallback brain in BrainData.cpp. Delete once every archetype row sets brainId.
+enum AIBrain
+{
+    BRAIN_MINDLESS,
+    BRAIN_PREDATOR,
+    BRAIN_SKITTISH,
+    BRAIN_TERRITORIAL,
+    BRAIN_CASTER
+};
+
+// Where a squad member stands relative to the target. See Squad.cpp for the formation math.
+enum EnemyRole
+{
+    ROLE_FRONTLINE,  // Shield-wall arc at melee range, facing the target
+    ROLE_SKIRMISHER, // Same range, but approaches from a wide flank angle instead of head-on
+    ROLE_BACKLINE    // Held well behind the frontline, out of melee range
+};
 
 struct EnemyArchetype
 {
@@ -36,6 +53,8 @@ struct EnemyArchetype
     int detectionRadius = 8; // Tiles of line-of-sight range. Lower for mindless/small creatures, higher for keen hunters.
     bool canHaveVariant = true; // False for swarms/masses where a tag like "Archer" wouldn't make sense
     std::vector<std::string> excludedVariantIds; // Variant ids this archetype can never roll (e.g. no hands for a bow)
+    std::string brainId = ""; // Key into G_BRAINS (BrainData.h). Empty falls back to the legacy brain enum.
+    EnemyRole role = ROLE_FRONTLINE;
 };
 
 struct SpawnRule
@@ -50,3 +69,7 @@ struct SpawnRule
 
 extern std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES;
 extern std::vector<SpawnRule> G_SPAWN_RULES;
+
+// Patches role and brainId onto specific archetypes by id, after G_ENEMY_ARCHETYPES exists.
+// Same pattern as ResolveWeaponSkillIds(). Call once at startup.
+void ResolveEnemyArchetypeDefaults();

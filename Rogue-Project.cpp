@@ -19,12 +19,14 @@
 #include "HotbarUI.h"
 #include "MenuHubUI.h"
 #include "TargetingUI.h"
+#include "WeaponVisual.h"
 #include "UIScale.h"
 #include "ArrowData.h"
-#include "EnemyTurns.h"
+#include "EnemyBehavior.h"
 #include "FactionConflict.h"
-#include "EnemyAI.h"
 #include "LineOfSight.h"
+#include "NavMesh.h"
+#include "Squad.h"
 #include <string>
 
 const int MAP_WIDTH = 80;
@@ -251,6 +253,7 @@ int main()
     SetTargetFPS(60);
     InitTitleScreen();
     ResolveWeaponSkillIds();
+    ResolveEnemyArchetypeDefaults();
 
     TileType map[MAP_WIDTH][MAP_HEIGHT];
     bool explored[MAP_WIDTH][MAP_HEIGHT] = { false };
@@ -260,6 +263,15 @@ int main()
     std::vector<Enemy> enemies;
     std::vector<GroundItem> groundItems;
     std::string actionMessage = "";
+
+    NavMesh navMesh;
+    bool showNavDebug = false;
+    auto rebuildNavMesh = [&]() {
+        navMesh.Build(MAP_WIDTH, MAP_HEIGHT, [&](int tileX, int tileY) -> bool {
+            TileType tile = map[tileX][tileY];
+            return tile == TILE_FLOOR || tile == TILE_STAIR_UP || tile == TILE_STAIR_DOWN;
+            });
+        };
 
     enum ActionMode { MODE_GRAB, MODE_LOOK, MODE_SPEAK, MODE_STEAL };
     ActionMode currentMode = MODE_LOOK;
@@ -281,6 +293,7 @@ int main()
     MenuTab currentMenuTab = MENU_TAB_INVENTORY;
     bool showDeathScreen = false;
     std::string aimingAbilityId = "";
+    WeaponSwingState weaponSwing;
 
     Camera2D camera = { 0 };
     camera.offset = { screenWidth / 2.0f, screenHeight / 2.0f };
@@ -454,6 +467,7 @@ int main()
                 currentFloor = 0;
                 groundItems.clear();
                 GenerateFloor(map, explored, rooms, player, enemies, currentFloor + 1);
+                rebuildNavMesh();
 
                 LevelState firstFloor;
                 for (int x = 0; x < MAP_WIDTH; x++) {
@@ -506,6 +520,8 @@ int main()
         {
             player.attackCooldown -= GetFrameTime();
         }
+
+        UpdateWeaponSwing(weaponSwing, GetFrameTime());
 
         Vector2 mouseWorldForFacing = GetScreenToWorld2D(GetMousePosition(), camera);
         float facingDeltaX = mouseWorldForFacing.x - (player.x * tileSize + tileSize / 2.0f);
@@ -686,10 +702,12 @@ int main()
                     targetEnemy = &enemies[i];
                 }
 
-                player.attackCooldown = GetAttackCooldownSeconds(player); // A whiff costs the same time as a hit
+                float swingSeconds = GetAttackCooldownSeconds(player);
+                player.attackCooldown = swingSeconds; // A whiff costs the same time as a hit
+                DamageType swingType = ChooseSwingDamageType(player, moveInputX, moveInputY);
+                StartWeaponSwing(weaponSwing, player, swingType, swingSeconds * 0.7f);
 
                 if (targetEnemy != nullptr) {
-                    DamageType swingType = ChooseSwingDamageType(player, moveInputX, moveInputY);
                     ResolveBumpAttack(player, *targetEnemy, actionMessage, swingType);
                 }
             }
@@ -755,9 +773,19 @@ int main()
             }
         }
 
-        // Enemy AI is intentionally frozen this pass: the old energy/turn system fired off a
-       // discrete player move, which no longer exists. Converting AIBrain decisions to per-frame
-       // movement and attack cooldowns is the next sub-phase, once movement and combat feel right.
+        if (!menuOpen)
+        {
+            auto isEnemyPositionFree = [&](float centerX, float centerY, float radius) -> bool {
+                return IsWorldPositionWalkable(map, centerX, centerY, radius);
+                };
+            UpdateSquads(enemies, player);
+            UpdateEnemyBehaviors(enemies, player, GetFrameTime(), isEnemyPositionFree, isOpaque, navMesh, actionMessage);
+            if (player.hp <= 0)
+            {
+                player.hp = 0;
+                showDeathScreen = true;
+            }
+        }
 
        if (!menuOpen && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && !aimingAbilityId.empty())
        {
@@ -781,7 +809,7 @@ int main()
             }
 
             for (const auto& enemy : enemies) {
-                if (!foundSomething && enemy.x == clickX && enemy.y == clickY && (!enableFog || explored[clickX][clickY])) {
+                if (!foundSomething && (int)(enemy.x + 0.5f) == clickX && (int)(enemy.y + 0.5f) == clickY && (!enableFog || explored[clickX][clickY])) {
                     std::string enemyName = GetEnemyName(enemy);
                     if (enemy.isDead) {
                         switch (currentMode) {
@@ -881,6 +909,7 @@ int main()
 
         if (IsKeyPressed(KEY_F)) enableFog = !enableFog;
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
+        if (IsKeyPressed(KEY_N)) showNavDebug = !showNavDebug;
 
         float wheelMove = GetMouseWheelMove();
         if (wheelMove > 0) currentMode = (ActionMode)((currentMode + 1) % 4);
@@ -941,6 +970,7 @@ int main()
                         }
                     }
                 }
+                rebuildNavMesh();
                 continue;
             }
         }
@@ -1000,9 +1030,9 @@ int main()
             const AbilityDef* aimingAbility = FindAbility(aimingAbilityId);
             if (aimingAbility != nullptr) {
                 Vector2 aimWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
-                int aimTileX = (int)floorf(aimWorldPos.x / (float)tileSize);
-                int aimTileY = (int)floorf(aimWorldPos.y / (float)tileSize);
-                DrawTargetingOverlay(player.x, player.y, aimTileX, aimTileY, *aimingAbility, tileSize);
+                float aimTileX = aimWorldPos.x / (float)tileSize;
+                float aimTileY = aimWorldPos.y / (float)tileSize;
+                DrawTargetingOverlay(player.x + 0.5f, player.y + 0.5f, aimTileX, aimTileY, *aimingAbility, tileSize);
             }
         }
 
@@ -1013,7 +1043,7 @@ int main()
         }
 
         for (const auto& enemy : enemies) {
-            if (!enableFog || explored[enemy.x][enemy.y]) {
+            if (!enableFog || explored[(int)(enemy.x + 0.5f)][(int)(enemy.y + 0.5f)]) {
                 const char* enemyChar = TextFormat("%c", enemy.symbol);
                 Color drawColor = enemy.isDead ? GRAY : enemy.color;
                 float rotation = enemy.isDead ? 90.0f : 0.0f;
@@ -1024,7 +1054,23 @@ int main()
             }
         }
 
+        if (showNavDebug) {
+            for (const auto& enemy : enemies) {
+                if (!enemy.hasSquadSlot) {
+                    continue;
+                }
+                Vector2 slotPos = { enemy.squadSlotX * tileSize + tileSize / 2.0f, enemy.squadSlotY * tileSize + tileSize / 2.0f };
+                Vector2 enemyPos = { enemy.x * tileSize + tileSize / 2.0f, enemy.y * tileSize + tileSize / 2.0f };
+                DrawCircleV(slotPos, 5.0f, YELLOW);
+                DrawLineV(enemyPos, slotPos, Fade(YELLOW, 0.5f));
+            }
+        }
+
         DrawText("@", player.x* tileSize + 4, player.y* tileSize + 2, tileSize, GREEN);
+        DrawWeaponVisual(weaponSwing, player, tileSize);
+        if (showNavDebug) {
+            navMesh.DrawDebug(tileSize);
+        }
         EndMode2D();
 
         DrawHotbar(player);

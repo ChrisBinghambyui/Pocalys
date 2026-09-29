@@ -7,6 +7,21 @@
 #include "ItemData.h"
 #include "SkillScaling.h"
 
+const WeaponType* GetMeleeWeaponType(const Player& attacker)
+{
+    const Item& weapon = attacker.equippedSlots[SLOT_MAIN_HAND];
+    if (weapon.weaponTypeId < 0 || weapon.weaponTypeId >= (int)G_WEAPON_TYPES.size())
+    {
+        return nullptr;
+    }
+    const WeaponType& type = G_WEAPON_TYPES[weapon.weaponTypeId];
+    if (type.category == WEAPON_RANGED || !IsUsable(weapon.condition))
+    {
+        return nullptr;
+    }
+    return &type;
+}
+
 int CalculateUnarmedDamage(const Player& attacker)
 {
     int damage = attacker.str / 10;

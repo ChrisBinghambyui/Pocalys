@@ -66,13 +66,7 @@
     <ClCompile Include="ArrowData.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="EnemyTurns.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="FactionData.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="EnemyAi.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="FactionConflict.cpp">
@@ -97,6 +91,24 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="SkillScaling.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Weaponvisual.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Behaviordata.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Braindata.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Enemybehavior.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Navmesh.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Squad.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -164,16 +176,10 @@
     <ClInclude Include="ArrowData.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="EnemyTurns.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="FactionData.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="LineOfSight.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="EnemyAi.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="FactionConflict.h">
@@ -195,6 +201,24 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SkillScaling.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Weaponvisual.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Behaviordata.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Braindata.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Enemybehavior.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Navmesh.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Squad.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

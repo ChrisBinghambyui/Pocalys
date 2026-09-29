@@ -6,6 +6,10 @@
 
 int CalculateUnarmedDamage(const Player& attacker);
 
+
+// The main-hand weapon type if it is a working, non-ranged procedural weapon. Null means fists.
+const WeaponType* GetMeleeWeaponType(const Player& attacker);
+
 // Raw weapon damage before armor: the dice for attackType (see GetAttackRank), material bonus (only if its affinity fits the weapon),
 // STR/AGI bonus, then the condition penalty. maxRoll = true takes maximum dice (critical hits).
 // Returns 0 if the item is not a procedural weapon. Enemy attacks can reuse this.

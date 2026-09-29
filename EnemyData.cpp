@@ -624,6 +624,49 @@ std::vector<EnemyArchetype> G_ENEMY_ARCHETYPES = {
     }
 };
 
+
+void ResolveEnemyArchetypeDefaults()
+{
+    static const std::vector<std::string> backlineIds = {
+        "bog_witch", "academy_mage", "void_gazer", "ashen_lich",
+        "haven_bowman", "haven_cleric", "inferno_succubus"
+    };
+    static const std::vector<std::string> skirmisherIds = {
+        "ratnik_scavenger", "stronghold_wolf_rider", "dungeon_raider",
+        "inferno_imp", "academy_djinn", "academy_gremlin"
+    };
+    static const std::vector<std::string> squadBrainIds = {
+        "stronghold_goblin", "stronghold_orc", "haven_squire", "haven_bowman",
+        "bog_witch", "academy_mage", "stronghold_wolf_rider", "academy_gremlin",
+        "inferno_horned_demon", "haven_cavalier"
+    };
+
+    for (auto& archetype : G_ENEMY_ARCHETYPES)
+    {
+        for (const auto& id : backlineIds)
+        {
+            if (archetype.id == id)
+            {
+                archetype.role = ROLE_BACKLINE;
+            }
+        }
+        for (const auto& id : skirmisherIds)
+        {
+            if (archetype.id == id)
+            {
+                archetype.role = ROLE_SKIRMISHER;
+            }
+        }
+        for (const auto& id : squadBrainIds)
+        {
+            if (archetype.id == id)
+            {
+                archetype.brainId = "squad_martial";
+            }
+        }
+    }
+}
+
 std::vector<SpawnRule> G_SPAWN_RULES = {
     // Floor 1-3: Shallow danger
     { "ratnik_scavenger", 1, 4, 50, -5 },
