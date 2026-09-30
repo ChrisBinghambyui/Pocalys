@@ -21,6 +21,7 @@ struct FactionData
     std::vector<FactionRelation> relations; // Explicit stance toward other factions. Unlisted = no opinion, falls through.
     bool isScavenger = false;               // Can this faction show up near an unattended corpse?
     std::vector<std::string> scavengesFromIds; // Which factions' corpses draw it. Empty + isScavenger = scavenges anything.
+    bool friendlyToPlayer = false; // Explicit opt-out. Default is hostile — see IsPlayerHostileTarget in EnemyBehavior.cpp.
 };
 
 extern std::vector<FactionData> G_FACTIONS;

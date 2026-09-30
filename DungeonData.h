@@ -15,7 +15,8 @@ enum TileType {
     TILE_FLOOR,
     TILE_WALL,
     TILE_STAIR_UP,
-    TILE_STAIR_DOWN
+    TILE_STAIR_DOWN,
+    TILE_EXTRACT // Appended last so existing tile values do not shift
 };
 
 const int mapWidth = 100;
@@ -28,6 +29,7 @@ struct LevelState {
     bool savedExplored[mapWidth][mapHeight];
     std::vector<Enemy> savedEnemies; // Corpses and survivors both persist here
     std::vector<GroundItem> savedItems;
+    int alertLevel = 0; // Set from the floor's live alert when the player leaves, restored when they return
 };
 
 // A handy struct to keep track of our rooms and find their centers

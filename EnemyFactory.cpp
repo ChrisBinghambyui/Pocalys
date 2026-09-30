@@ -2,41 +2,81 @@
 #include "WeaponData.h"
 #include "MaterialData.h"
 #include "VariantData.h"
+#include "FloorModifierData.h"
 #include "raylib.h"
 #include <cstdlib>
 
-const int VARIANT_CHANCE_PERCENT = 25; // Chance an eligible spawn rolls a variant tag instead of the plain base creature
+// Chance an eligible spawn rolls a variant tag instead of the plain base creature. Climbs with depth.
+const int VARIANT_BASE_CHANCE_PERCENT = 25;
+const int VARIANT_CHANCE_PER_CHUNK = 10;
+const int VARIANT_CHANCE_PER_FLOOR = 1; // Per floor into the chunk
+const int VARIANT_CHANCE_CAP_PERCENT = 85;
 
-static const CreatureVariant* PickCompatibleVariant(const EnemyArchetype& archetype)
+static int GetVariantChancePercent(int floorNumber, int modifierBonus)
+{
+    int chance = VARIANT_BASE_CHANCE_PERCENT;
+    chance += GetChunkIndex(floorNumber) * VARIANT_CHANCE_PER_CHUNK;
+    chance += (GetFloorInChunk(floorNumber) - 1) * VARIANT_CHANCE_PER_FLOOR;
+    chance += modifierBonus;
+    if (chance > VARIANT_CHANCE_CAP_PERCENT)
+    {
+        chance = VARIANT_CHANCE_CAP_PERCENT;
+    }
+    return chance;
+}
+
+static bool IsVariantExcluded(const EnemyArchetype& archetype, const std::string& variantId);
+
+// Weighted pick among the variants this archetype allows and this chunk has unlocked. Weight is
+// baseWeight + weightPerChunk * chunk (from the variant row), so deeper floors lean toward elite tags.
+static const CreatureVariant* PickCompatibleVariant(const EnemyArchetype& archetype, int floorNumber)
 {
     if (!archetype.canHaveVariant)
     {
         return nullptr;
     }
 
+    int chunk = GetChunkIndex(floorNumber);
     std::vector<const CreatureVariant*> pool;
+    std::vector<int> weights;
+    int totalWeight = 0;
+
     for (size_t i = 0; i < G_CREATURE_VARIANTS.size(); i++)
     {
-        bool excluded = false;
-        for (size_t e = 0; e < archetype.excludedVariantIds.size(); e++)
+        const CreatureVariant& candidate = G_CREATURE_VARIANTS[i];
+        if (chunk < candidate.minChunk)
         {
-            if (archetype.excludedVariantIds[e] == G_CREATURE_VARIANTS[i].id)
-            {
-                excluded = true;
-                break;
-            }
+            continue;
         }
-        if (!excluded)
+        if (IsVariantExcluded(archetype, candidate.id))
         {
-            pool.push_back(&G_CREATURE_VARIANTS[i]);
+            continue;
         }
+        int weight = candidate.baseWeight + (candidate.weightPerChunk * chunk);
+        if (weight < 1)
+        {
+            weight = 1;
+        }
+        pool.push_back(&candidate);
+        weights.push_back(weight);
+        totalWeight += weight;
     }
 
     if (pool.empty())
     {
         return nullptr;
     }
-    return pool[GetRandomValue(0, (int)pool.size() - 1)];
+
+    int roll = GetRandomValue(1, totalWeight);
+    for (size_t i = 0; i < pool.size(); i++)
+    {
+        if (roll <= weights[i])
+        {
+            return pool[i];
+        }
+        roll -= weights[i];
+    }
+    return pool.back();
 }
 
 static int ClampMinOne(int value)
@@ -70,6 +110,13 @@ int CalculateSpawnWeight(const SpawnRule& rule, int current_floor)
 
 const int ENEMY_ATTRIBUTE_GROWTH_PER_FLOOR = 2;
 
+const float CHUNK_STAT_GROWTH = 0.15f; // Each 10-floor chunk adds this fraction on top of the flat per-floor growth
+
+static float GetChunkStatMultiplier(int current_floor)
+{
+    return 1.0f + (CHUNK_STAT_GROWTH * (float)GetChunkIndex(current_floor));
+}
+
 int CalculateScaledAttribute(int baseValue, int current_floor)
 {
     int floor_step = current_floor - 1;
@@ -77,7 +124,8 @@ int CalculateScaledAttribute(int baseValue, int current_floor)
     {
         floor_step = 0;
     }
-    return baseValue + (floor_step * ENEMY_ATTRIBUTE_GROWTH_PER_FLOOR);
+    int flatValue = baseValue + (floor_step * ENEMY_ATTRIBUTE_GROWTH_PER_FLOOR);
+    return (int)((float)flatValue * GetChunkStatMultiplier(current_floor) + 0.5f);
 }
 
 const EnemyArchetype* FindEnemyArchetype(const std::string& id)
@@ -202,6 +250,7 @@ int GetEnemyDetectionRadius(const Enemy& enemy)
             radius += variant->detectionRadiusMod;
         }
     }
+    radius += enemy.detectionBonus;
     if (radius < 1)
     {
         radius = 1;
@@ -220,12 +269,78 @@ FactionStance GetStance(const Enemy& actor, const Enemy& target)
     return GetFactionStance(actorArchetype->factionIds, targetArchetype->factionIds);
 }
 
-const EnemyArchetype* PickSpawnArchetype(int current_floor)
+static bool ArchetypeMatchesTheme(const EnemyArchetype& archetype, const ExpeditionDef& expedition)
+{
+    for (size_t i = 0; i < archetype.factionIds.size(); i++)
+    {
+        for (size_t t = 0; t < expedition.themeTags.size(); t++)
+        {
+            if (archetype.factionIds[i] == expedition.themeTags[t])
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Rule weight after depth math, then scaled by the expedition theme. Stays at least 1 while the rule is active.
+static int CalculateThemedSpawnWeight(const SpawnRule& rule, const FloorParams& params)
+{
+    int baseWeight = CalculateSpawnWeight(rule, params.floorNumber);
+    if (baseWeight <= 0)
+    {
+        return 0;
+    }
+    if (params.expedition == nullptr)
+    {
+        return baseWeight;
+    }
+
+    const EnemyArchetype* archetype = FindEnemyArchetype(rule.archetype_id);
+    if (archetype == nullptr)
+    {
+        return 0;
+    }
+
+    float multiplier = params.expedition->offThemeMultiplier;
+    if (ArchetypeMatchesTheme(*archetype, *params.expedition))
+    {
+        multiplier = params.expedition->themeMultiplier;
+    }
+
+    // Modifier boosts stack on top of the theme scaling (an infestation still swarms a Necropolis)
+    for (size_t m = 0; m < params.modifiers.size(); m++)
+    {
+        const FloorModifierDef* modifier = params.modifiers[m];
+        if (modifier->extraSpawnTag.empty())
+        {
+            continue;
+        }
+        for (size_t f = 0; f < archetype->factionIds.size(); f++)
+        {
+            if (archetype->factionIds[f] == modifier->extraSpawnTag)
+            {
+                multiplier *= modifier->extraSpawnMult;
+                break;
+            }
+        }
+    }
+
+    int weight = (int)((float)baseWeight * multiplier + 0.5f);
+    if (weight < 1)
+    {
+        weight = 1;
+    }
+    return weight;
+}
+
+const EnemyArchetype* PickSpawnArchetype(const FloorParams& params)
 {
     int totalWeight = 0;
     for (size_t i = 0; i < G_SPAWN_RULES.size(); i++)
     {
-        totalWeight += CalculateSpawnWeight(G_SPAWN_RULES[i], current_floor);
+        totalWeight += CalculateThemedSpawnWeight(G_SPAWN_RULES[i], params);
     }
 
     if (totalWeight <= 0)
@@ -236,7 +351,7 @@ const EnemyArchetype* PickSpawnArchetype(int current_floor)
     int roll = GetRandomValue(1, totalWeight);
     for (size_t i = 0; i < G_SPAWN_RULES.size(); i++)
     {
-        int weight = CalculateSpawnWeight(G_SPAWN_RULES[i], current_floor);
+        int weight = CalculateThemedSpawnWeight(G_SPAWN_RULES[i], params);
         if (roll <= weight)
         {
             return FindEnemyArchetype(G_SPAWN_RULES[i].archetype_id);
@@ -246,7 +361,19 @@ const EnemyArchetype* PickSpawnArchetype(int current_floor)
     return nullptr;
 }
 
-Enemy CreateEnemy(const EnemyArchetype& archetype, int floorNumber, int x, int y)
+static bool IsVariantExcluded(const EnemyArchetype& archetype, const std::string& variantId)
+{
+    for (size_t i = 0; i < archetype.excludedVariantIds.size(); i++)
+    {
+        if (archetype.excludedVariantIds[i] == variantId)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+Enemy CreateEnemy(const EnemyArchetype& archetype, int floorNumber, int x, int y, const std::string& forcedVariantId, int variantChanceBonus)
 {
     Enemy enemy = Enemy();
     enemy.archetypeId = archetype.id;
@@ -265,9 +392,17 @@ Enemy CreateEnemy(const EnemyArchetype& archetype, int floorNumber, int x, int y
     enemy.lck = CalculateScaledAttribute(archetype.lck, floorNumber);
 
     const CreatureVariant* variant = nullptr;
-    if (GetRandomValue(1, 100) <= VARIANT_CHANCE_PERCENT)
+    if (!forcedVariantId.empty())
     {
-        variant = PickCompatibleVariant(archetype);
+        variant = FindVariant(forcedVariantId);
+        if (variant != nullptr && IsVariantExcluded(archetype, variant->id))
+        {
+            variant = nullptr;
+        }
+    }
+    else if (GetRandomValue(1, 100) <= GetVariantChancePercent(floorNumber, variantChanceBonus))
+    {
+        variant = PickCompatibleVariant(archetype, floorNumber);
     }
     if (variant != nullptr)
     {

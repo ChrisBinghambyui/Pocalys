@@ -684,7 +684,7 @@ std::vector<SpawnRule> G_SPAWN_RULES = {
     { "dread_warden", 10, 99, 5, 5 },
 
     // Necropolis
-    { "zombie_shambler", 2, 7, 35, 3 },
+    { "zombie_shambler", 1, 7, 35, 3 },
     { "hollow_wight", 4, 9, 18, 4 },
     { "crimson_vampire", 6, 11, 12, 4 },
     { "ashen_lich", 7, 12, 10, 4 },

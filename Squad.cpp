@@ -1,6 +1,7 @@
 #include "Squad.h"
 #include "BehaviorData.h"
 #include "EnemyFactory.h"
+#include "BrainData.h"
 #include "raylib.h"
 #include <cmath>
 #include <map>
@@ -37,10 +38,14 @@ static bool CanShareSquad(const std::vector<Enemy>& enemies, int indexA, int ind
         return false;
     }
 
-    std::string factionA = GetPrimaryFactionId(a);
-    if (factionA.empty() || factionA != GetPrimaryFactionId(b))
+    bool sameGroup = (a.groupId >= 0 && a.groupId == b.groupId);
+    if (!sameGroup)
     {
-        return false;
+        std::string factionA = GetPrimaryFactionId(a);
+        if (factionA.empty() || factionA != GetPrimaryFactionId(b))
+        {
+            return false;
+        }
     }
 
     float dx = a.x - b.x;
@@ -170,6 +175,25 @@ static void ComputeClusterFormation(std::vector<Enemy>& enemies, const std::vect
     PlaceSkirmisherFlanks(enemies, skirmishers, targetX, targetY, approachX, approachY);
 }
 
+// Only brains that list follow_squad_order can walk to a formation slot. Anyone else holding a slot has
+// Hunt scored to zero and just stands there, so they stay out of squads and hunt on their own.
+static bool CanFollowSquadOrders(const Enemy& enemy)
+{
+    const BrainDef* brain = GetBrainForEnemy(enemy);
+    if (brain == nullptr)
+    {
+        return false;
+    }
+    for (size_t i = 0; i < brain->entries.size(); i++)
+    {
+        if (brain->entries[i].behaviorId == "follow_squad_order")
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void UpdateSquads(std::vector<Enemy>& enemies, Player& player)
 {
     for (Enemy& enemy : enemies)
@@ -185,6 +209,10 @@ void UpdateSquads(std::vector<Enemy>& enemies, Player& player)
             continue;
         }
         if (!EnemyHasTarget(enemies[i]))
+        {
+            continue;
+        }
+        if (!CanFollowSquadOrders(enemies[i]))
         {
             continue;
         }

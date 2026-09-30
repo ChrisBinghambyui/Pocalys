@@ -6,6 +6,7 @@
 #include "Player.h"
 #include "LineOfSight.h"
 #include "NavMesh.h"
+#include "DungeonData.h" // For Room, used by Patrol
 
 // Shared enemy tuning, all in tile units.
 const float ENEMY_BASE_MOVE_SPEED = 3.0f;   // Tiles per second at archetype speed 100. The player moves at 5.
@@ -26,6 +27,8 @@ struct AIContext
     const PositionFreeFn& isPositionFree;
     const TileOpaqueFn& isOpaque;
     const NavMesh& navMesh;
+    int& floorAlert;
+    const std::vector<Room>& rooms;
     std::string& actionMessage;
 };
 

@@ -13,6 +13,10 @@
 #include "CharacterGenerator.h"
 #include "TitleScreen.h"
 #include "EnemyFactory.h"
+#include "FloorPopulation.h"
+#include "StashData.h"
+#include "StashUI.h"
+#include "FloorModifierData.h"
 #include "FeatData.h"
 #include "AbilityHotbar.h"
 #include "AbilityData.h"
@@ -27,6 +31,7 @@
 #include "LineOfSight.h"
 #include "NavMesh.h"
 #include "Squad.h"
+#include "Alert.h"
 #include <string>
 
 const int MAP_WIDTH = 80;
@@ -39,11 +44,13 @@ const float PICKUP_RANGE = 0.8f;            // Tile units, distance for G to rea
 const float MELEE_ATTACK_RANGE = 1.2f;      // Tile units, distance for a left-click attack to reach an enemy
 const float MELEE_ATTACK_FACING_COS = 0.5f; // Minimum dot product between facing and to-enemy direction (~120 degree cone)
 const float INTERACT_RANGE = 1.6f;          // Tile units, reach for SPEAK / GRAB / STEAL. LOOK ignores it. 1.6 covers a diagonal neighbor.
+const float ENEMY_CLICK_RADIUS = 0.6f;      // Tile units, forgiving radius around an enemy's true position for mouse-click interaction
 
 enum GameState {
     STATE_TITLE,
     STATE_TAVERN,
-    STATE_GAMEPLAY
+    STATE_GAMEPLAY,
+    STATE_STASH
 };
 
 
@@ -106,7 +113,7 @@ std::string GetGroundItemName(const Item& item) {
     return "item";
 }
 
-void GenerateFloor(TileType map[MAP_WIDTH][MAP_HEIGHT], bool explored[MAP_WIDTH][MAP_HEIGHT], std::vector<Room>& rooms, Player& player, std::vector<Enemy>& enemies, int floorNumber) {
+void GenerateFloor(TileType map[MAP_WIDTH][MAP_HEIGHT], bool explored[MAP_WIDTH][MAP_HEIGHT], std::vector<Room>& rooms, Player& player, std::vector<Enemy>& enemies, const FloorParams& params) {
     rooms.clear();
     for (int x = 0; x < MAP_WIDTH; x++) {
         for (int y = 0; y < MAP_HEIGHT; y++) {
@@ -148,18 +155,16 @@ void GenerateFloor(TileType map[MAP_WIDTH][MAP_HEIGHT], bool explored[MAP_WIDTH]
     }
     map[rooms[furthestIdx].centerX()][rooms[furthestIdx].centerY()] = TILE_STAIR_DOWN;
 
+    // Every tenth floor gets an extraction point one tile beside the down stairs
+    if (params.floorInChunk == FLOORS_PER_CHUNK)
+    {
+        map[rooms[furthestIdx].centerX() - 1][rooms[furthestIdx].centerY()] = TILE_EXTRACT;
+    }
+
     player.x = rooms[0].centerX() + 1;
     player.y = rooms[0].centerY();
 
-    enemies.clear();
-    for (size_t i = 1; i < rooms.size(); i++) {
-        const EnemyArchetype* archetype = PickSpawnArchetype(floorNumber);
-        if (archetype == nullptr)
-        {
-            continue;
-        }
-        enemies.push_back(CreateEnemy(*archetype, floorNumber, rooms[i].centerX(), rooms[i].centerY()));
-    }
+    PopulateFloor(params, rooms, furthestIdx, enemies);
 }
 
 void ApplyProfileToPlayer(const CharacterProfile& profile, Player& player) {
@@ -228,7 +233,7 @@ static bool IsWorldPositionWalkable(TileType map[MAP_WIDTH][MAP_HEIGHT], float c
             return false;
         }
         TileType tile = map[tileX][tileY];
-        if (tile != TILE_FLOOR && tile != TILE_STAIR_UP && tile != TILE_STAIR_DOWN)
+        if (tile != TILE_FLOOR && tile != TILE_STAIR_UP && tile != TILE_STAIR_DOWN && tile != TILE_EXTRACT)
         {
             return false;
         }
@@ -237,6 +242,17 @@ static bool IsWorldPositionWalkable(TileType map[MAP_WIDTH][MAP_HEIGHT], float c
     return true;
 }
 
+// True if the tile under the player's collision center is this type. Bounds-checked, because noclip can walk off the map.
+static bool IsPlayerOnTile(TileType map[MAP_WIDTH][MAP_HEIGHT], const Player& player, TileType tile)
+{
+    int tileX = (int)(player.x + 0.5f);
+    int tileY = (int)(player.y + 0.5f);
+    if (tileX < 0 || tileX >= MAP_WIDTH || tileY < 0 || tileY >= MAP_HEIGHT)
+    {
+        return false;
+    }
+    return map[tileX][tileY] == tile;
+}
 
 int main()
 {
@@ -260,16 +276,26 @@ int main()
     std::vector<Room> rooms;
     std::vector<LevelState> dungeon;
     int currentFloor = 0;
+    int floorAlert = 0;
     std::vector<Enemy> enemies;
     std::vector<GroundItem> groundItems;
     std::string actionMessage = "";
+    const ExpeditionDef* currentExpedition = nullptr;
+    StashLoadoutState stashLoadout;
+    bool stashPackDone = false;  // True for the one frame after the pack screen, forces the tavern confirm through
+    int stashPatronIndex = 0;    // Patron picked before the pack screen, restored after it (mouse hover can move the selection)
+    bool extractArmed = false;   // First Space on the extraction tile arms it, the second one leaves
+    bool showExtractScreen = false;
+    std::string extractSummary = "";
+    std::vector<std::string> activeModifierIds; // Modifier ids (G_FLOOR_MODIFIERS) in force this expedition. Contracts fill this later.
+    int playerVisionMod = 0;                    // Summed visionRadiusMod of the active modifiers
 
     NavMesh navMesh;
     bool showNavDebug = false;
     auto rebuildNavMesh = [&]() {
         navMesh.Build(MAP_WIDTH, MAP_HEIGHT, [&](int tileX, int tileY) -> bool {
             TileType tile = map[tileX][tileY];
-            return tile == TILE_FLOOR || tile == TILE_STAIR_UP || tile == TILE_STAIR_DOWN;
+            return tile == TILE_FLOOR || tile == TILE_STAIR_UP || tile == TILE_STAIR_DOWN || tile == TILE_EXTRACT;
             });
         };
 
@@ -459,14 +485,39 @@ int main()
             DrawText(hint.c_str(), GetScreenWidth() / 2 - MeasureText(hint.c_str(), hintFontSize) / 2, GetScreenHeight() - (int)(50 * uiScale), hintFontSize, GOLD);
             EndDrawing();
 
+            if (confirmSelection && !stashPackDone && !G_STASH.items.empty())
+            {
+                stashPatronIndex = selectedCandidate;
+                stashLoadout = StashLoadoutState();
+                currentState = STATE_STASH;
+                confirmSelection = false;
+            }
+            if (stashPackDone)
+            {
+                selectedCandidate = stashPatronIndex;
+                confirmSelection = true;
+            }
+
             if (confirmSelection) {
                 ApplyProfileToPlayer(tavernCandidates[selectedCandidate], player);
                 FillEmptyHotbarSlots(player);
+                if (stashPackDone)
+                {
+                    WithdrawFlaggedFromStash(stashLoadout.packed, player);
+                    stashPackDone = false;
+                }
 
                 dungeon.clear();
                 currentFloor = 0;
                 groundItems.clear();
-                GenerateFloor(map, explored, rooms, player, enemies, currentFloor + 1);
+                currentExpedition = PickRandomExpedition();
+                activeModifierIds.clear();
+                if (!DEBUG_FORCED_MODIFIER_ID.empty())
+                {
+                    activeModifierIds.push_back(DEBUG_FORCED_MODIFIER_ID);
+                }
+                playerVisionMod = BuildFloorParams(currentExpedition, activeModifierIds, currentFloor + 1).visionRadiusMod;
+                GenerateFloor(map, explored, rooms, player, enemies, BuildFloorParams(currentExpedition, activeModifierIds, currentFloor + 1));
                 rebuildNavMesh();
 
                 LevelState firstFloor;
@@ -478,12 +529,59 @@ int main()
                 }
                 firstFloor.savedEnemies = enemies;
                 firstFloor.savedItems = groundItems;
+                firstFloor.alertLevel = floorAlert;
                 dungeon.push_back(firstFloor);
 
                 camera.target = { (float)player.x * tileSize + (tileSize / 2.0f), (float)player.y * tileSize + (tileSize / 2.0f) };
                 actionMessage = "You descend into the catacombs as " + player.name + " the " + player.className + ".";
+                if (currentExpedition != nullptr)
+                {
+                    actionMessage = "Expedition: " + currentExpedition->name + ". " + actionMessage;
+                }
                 currentState = STATE_GAMEPLAY;
             }
+            continue;
+        }
+
+        // --- STASH LOADOUT STATE ---
+        if (currentState == STATE_STASH)
+        {
+            StashUIAction stashAction = UpdateAndDrawStashLoadout(stashLoadout);
+            if (stashAction == STASH_UI_BEGIN)
+            {
+                stashPackDone = true;
+                currentState = STATE_TAVERN;
+            }
+            else if (stashAction == STASH_UI_BACK)
+            {
+                currentState = STATE_TAVERN;
+            }
+            continue;
+        }
+
+        // --- EXTRACTION SUMMARY ---
+        if (showExtractScreen)
+        {
+            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))
+            {
+                showExtractScreen = false;
+                tavernCandidates = GenerateTavernCandidates(6);
+                selectedCandidate = 0;
+                currentState = STATE_TAVERN;
+            }
+
+            BeginDrawing();
+            ClearBackground(BLACK);
+            float extractScale = GetUIScale();
+            const char* extractTitle = "EXTRACTED";
+            int extractTitleFont = (int)(90 * extractScale);
+            DrawText(extractTitle, GetScreenWidth() / 2 - MeasureText(extractTitle, extractTitleFont) / 2, GetScreenHeight() / 2 - extractTitleFont, extractTitleFont, GOLD);
+            int extractLineFont = (int)(28 * extractScale);
+            DrawText(extractSummary.c_str(), GetScreenWidth() / 2 - MeasureText(extractSummary.c_str(), extractLineFont) / 2, GetScreenHeight() / 2 + (int)(10 * extractScale), extractLineFont, LIGHTGRAY);
+            const char* extractHint = "Press Enter to return to the tavern";
+            int extractHintFont = (int)(24 * extractScale);
+            DrawText(extractHint, GetScreenWidth() / 2 - MeasureText(extractHint, extractHintFont) / 2, GetScreenHeight() / 2 + (int)(70 * extractScale), extractHintFont, GRAY);
+            EndDrawing();
             continue;
         }
 
@@ -683,19 +781,11 @@ int main()
                         continue;
                     }
 
-                    float toEnemyX = ((float)enemies[i].x + 0.5f) - playerCenterX;
-                    float toEnemyY = ((float)enemies[i].y + 0.5f) - playerCenterY;
+                    float toEnemyX = (enemies[i].x + 0.5f) - playerCenterX;
+                    float toEnemyY = (enemies[i].y + 0.5f) - playerCenterY;
                     float distSq = toEnemyX * toEnemyX + toEnemyY * toEnemyY;
                     if (distSq > closestDistSq) {
                         continue;
-                    }
-
-                    float dist = sqrtf(distSq);
-                    if (dist > 0.001f) {
-                        float facingDot = (toEnemyX / dist) * player.facingX + (toEnemyY / dist) * player.facingY;
-                        if (facingDot < MELEE_ATTACK_FACING_COS) {
-                            continue;
-                        }
                     }
 
                     closestDistSq = distSq;
@@ -779,7 +869,7 @@ int main()
                 return IsWorldPositionWalkable(map, centerX, centerY, radius);
                 };
             UpdateSquads(enemies, player);
-            UpdateEnemyBehaviors(enemies, player, GetFrameTime(), isEnemyPositionFree, isOpaque, navMesh, actionMessage);
+            UpdateEnemyBehaviors(enemies, player, GetFrameTime(), isEnemyPositionFree, isOpaque, navMesh, rooms, floorAlert, actionMessage);
             if (player.hp <= 0)
             {
                 player.hp = 0;
@@ -797,6 +887,8 @@ int main()
             Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
             int clickX = (int)floorf(mouseWorldPos.x / (float)tileSize);
             int clickY = (int)floorf(mouseWorldPos.y / (float)tileSize);
+            float clickWorldX = mouseWorldPos.x / (float)tileSize;
+            float clickWorldY = mouseWorldPos.y / (float)tileSize;
             bool foundSomething = false;
 
             float reachDeltaX = ((float)clickX + 0.5f) - (player.x + 0.5f);
@@ -809,7 +901,10 @@ int main()
             }
 
             for (const auto& enemy : enemies) {
-                if (!foundSomething && (int)(enemy.x + 0.5f) == clickX && (int)(enemy.y + 0.5f) == clickY && (!enableFog || explored[clickX][clickY])) {
+                float enemyClickDx = clickWorldX - (enemy.x + 0.5f);
+                float enemyClickDy = clickWorldY - (enemy.y + 0.5f);
+                bool clickedEnemy = (enemyClickDx * enemyClickDx + enemyClickDy * enemyClickDy) <= ENEMY_CLICK_RADIUS * ENEMY_CLICK_RADIUS;
+                if (!foundSomething && clickedEnemy && (!enableFog || explored[clickX][clickY])) {
                     std::string enemyName = GetEnemyName(enemy);
                     if (enemy.isDead) {
                         switch (currentMode) {
@@ -883,7 +978,7 @@ int main()
                         case MODE_LOOK:  actionMessage = "A set of dark stairs leading deeper down."; break;
                         case MODE_SPEAK: actionMessage = "Your voice echoes down the stairwell."; break;
                         case MODE_GRAB:  actionMessage = "You grip the dusty stone steps."; break;
-                        case MODE_STEAL: actionMessage = "You can't steal the staircase."; break;
+                        case MODE_STEAL: actionMessage = "Try as you might, you can't steal the staircase."; break;
                         }
                         break;
                     case TILE_STAIR_UP:
@@ -891,7 +986,15 @@ int main()
                         case MODE_LOOK:  actionMessage = "Stairs leading back toward the upper floors."; break;
                         case MODE_SPEAK: actionMessage = "Your voice echoes upward."; break;
                         case MODE_GRAB:  actionMessage = "You grip the stair steps."; break;
-                        case MODE_STEAL: actionMessage = "You can't steal the staircase."; break;
+                        case MODE_STEAL: actionMessage = "Try as you might, you can't steal the staircase."; break;
+                        }
+                        break;
+                    case TILE_EXTRACT:
+                        switch (currentMode) {
+                        case MODE_LOOK:  actionMessage = "A ring of pale stones, faintly warm. A way out, if you have the nerve to take it."; break;
+                        case MODE_SPEAK: actionMessage = "You call out. Somewhere far above, something answers."; break;
+                        case MODE_GRAB:  actionMessage = "The stones are smooth and warm, worn by other hands."; break;
+                        case MODE_STEAL: actionMessage = "You can't pocket a way out."; break;
                         }
                         break;
                     case TILE_FLOOR:
@@ -910,6 +1013,10 @@ int main()
         if (IsKeyPressed(KEY_F)) enableFog = !enableFog;
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
         if (IsKeyPressed(KEY_N)) showNavDebug = !showNavDebug;
+        if (!IsPlayerOnTile(map, player, TILE_EXTRACT))
+        {
+            extractArmed = false;
+        }
 
         float wheelMove = GetMouseWheelMove();
         if (wheelMove > 0) currentMode = (ActionMode)((currentMode + 1) % 4);
@@ -921,12 +1028,32 @@ int main()
         camera.target.y += (targetY - camera.target.y) * 10.0f * GetFrameTime();
 
         if (IsKeyPressed(KEY_SPACE) && !menuOpen) {
-            // Checked against the player's collision center (x+0.5, y+0.5), matching where they
-            // actually stand. Raw player.x/y was the bug, it needed a half-tile overshoot to register.
-            int playerTileX = (int)(player.x + 0.5f);
-            int playerTileY = (int)(player.y + 0.5f);
-            bool wentDown = (map[playerTileX][playerTileY] == TILE_STAIR_DOWN);
-            bool wentUp = (map[playerTileX][playerTileY] == TILE_STAIR_UP && currentFloor > 0);
+            // Same four-point circle check movement collision uses (see IsWorldPositionWalkable),
+            // so "standing on the stair" means the same footprint here as it does for walls.
+            float trueCenterX = player.x + 0.5f;
+            float trueCenterY = player.y + 0.5f;
+            float stairCheckPoints[4][2] = {
+                { trueCenterX - PLAYER_COLLISION_RADIUS, trueCenterY },
+                { trueCenterX + PLAYER_COLLISION_RADIUS, trueCenterY },
+                { trueCenterX, trueCenterY - PLAYER_COLLISION_RADIUS },
+                { trueCenterX, trueCenterY + PLAYER_COLLISION_RADIUS }
+            };
+
+            bool wentDown = false;
+            bool wentUp = false;
+            for (int i = 0; i < 4; i++) {
+                int tileX = (int)stairCheckPoints[i][0];
+                int tileY = (int)stairCheckPoints[i][1];
+                if (tileX < 0 || tileX >= MAP_WIDTH || tileY < 0 || tileY >= MAP_HEIGHT) {
+                    continue;
+                }
+                if (map[tileX][tileY] == TILE_STAIR_DOWN) {
+                    wentDown = true;
+                }
+                if (map[tileX][tileY] == TILE_STAIR_UP && currentFloor > 0) {
+                    wentUp = true;
+                }
+            }
 
             if (wentDown || wentUp) {
                 PerformFloorTransition(wentDown);
@@ -939,13 +1066,15 @@ int main()
                 }
                 dungeon[currentFloor].savedEnemies = enemies;
                 dungeon[currentFloor].savedItems = groundItems;
+                dungeon[currentFloor].alertLevel = floorAlert;
 
                 if (wentDown) currentFloor++;
                 if (wentUp) currentFloor--;
 
                 if (currentFloor >= (int)dungeon.size()) {
-                    GenerateFloor(map, explored, rooms, player, enemies, currentFloor + 1);
+                    GenerateFloor(map, explored, rooms, player, enemies, BuildFloorParams(currentExpedition, activeModifierIds, currentFloor + 1));
                     groundItems.clear();
+                    floorAlert = 0;
                     LevelState newFloor;
                     dungeon.push_back(newFloor);
                 }
@@ -958,6 +1087,7 @@ int main()
                     }
                     enemies = dungeon[currentFloor].savedEnemies;
                     ResolveOffscreenFactionConflicts(enemies, currentFloor + 1);
+                    floorAlert = dungeon[currentFloor].alertLevel;
                     groundItems = dungeon[currentFloor].savedItems;
 
                     TileType targetStair = wentDown ? TILE_STAIR_UP : TILE_STAIR_DOWN;
@@ -975,8 +1105,13 @@ int main()
             }
         }
 
-        for (int i = -PLAYER_VISION_RADIUS; i <= PLAYER_VISION_RADIUS; i++) {
-            for (int j = -PLAYER_VISION_RADIUS; j <= PLAYER_VISION_RADIUS; j++) {
+        int visionRadius = PLAYER_VISION_RADIUS + playerVisionMod;
+        if (visionRadius < 2)
+        {
+            visionRadius = 2;
+        }
+        for (int i = -visionRadius; i <= visionRadius; i++) {
+            for (int j = -visionRadius; j <= visionRadius; j++) {
                 int playerCenterTileX = (int)(player.x + 0.5f);
                 int playerCenterTileY = (int)(player.y + 0.5f);
                 int viewX = playerCenterTileX + i;
@@ -984,7 +1119,7 @@ int main()
                 if (viewX < 0 || viewX >= MAP_WIDTH || viewY < 0 || viewY >= MAP_HEIGHT) {
                     continue;
                 }
-                if (i * i + j * j > PLAYER_VISION_RADIUS * PLAYER_VISION_RADIUS) {
+                if (i * i + j * j > visionRadius * visionRadius) {
                     continue;
                 }
                 if (HasLineOfSight(playerCenterTileX, playerCenterTileY, viewX, viewY, isOpaque)) {
@@ -1022,6 +1157,7 @@ int main()
                     else if (map[x][y] == TILE_FLOOR) DrawText(".", x * tileSize + 8, y * tileSize + 2, tileSize, ColorAlpha(DARKGRAY, 0.5f));
                     else if (map[x][y] == TILE_STAIR_UP) DrawText("<", x * tileSize + 4, y * tileSize + 2, tileSize, YELLOW);
                     else if (map[x][y] == TILE_STAIR_DOWN) DrawText(">", x * tileSize + 4, y * tileSize + 2, tileSize, YELLOW);
+                    else if (map[x][y] == TILE_EXTRACT) DrawText("X", x * tileSize + 4, y * tileSize + 2, tileSize, SKYBLUE);
                 }
             }
         }
@@ -1072,7 +1208,22 @@ int main()
             navMesh.DrawDebug(tileSize);
         }
         EndMode2D();
-
+        if (currentExpedition != nullptr)
+        {
+            FloorParams hudFloor = BuildFloorParams(currentExpedition, activeModifierIds, currentFloor + 1);
+            std::string floorText = currentExpedition->name + "  |  Floor " + std::to_string(hudFloor.floorNumber);
+            floorText += "  |  Chunk " + std::to_string(hudFloor.chunkIndex + 1) + "  (" + std::to_string(hudFloor.floorInChunk) + "/" + std::to_string(FLOORS_PER_CHUNK) + ")";
+            for (size_t m = 0; m < hudFloor.modifiers.size(); m++)
+            {
+                floorText += "  |  " + hudFloor.modifiers[m]->name;
+            }
+            if (hudFloor.dangerRating > 0)
+            {
+                floorText += "  |  Danger +" + std::to_string(hudFloor.dangerRating);
+            }
+            float floorTextScale = GetUIScale();
+            DrawText(floorText.c_str(), (int)(18 * floorTextScale), (int)(18 * floorTextScale), (int)(22 * floorTextScale), GOLD);
+        }
         DrawHotbar(player);
 
         // HUD / UI
@@ -1084,6 +1235,18 @@ int main()
         DrawRectangle(hudX - (int)(10 * hudScale), hudY, hudPanelW, hudPanelH, Fade(BLACK, 0.85f));
 
         DrawText(TextFormat("%s (%s)", player.name.c_str(), player.className.c_str()), hudX, hudY + (int)(8 * hudScale), (int)(24 * hudScale), GOLD);
+
+        Color alertColor = GRAY;
+        std::string alertLabel = "CALM";
+        if (IsFloorSearching(floorAlert)) {
+            alertColor = RED;
+            alertLabel = "SEARCHING";
+        }
+        else if (IsFloorWary(floorAlert)) {
+            alertColor = ORANGE;
+            alertLabel = "WARY";
+        }
+        DrawText(TextFormat("ALERT: %s (%d)", alertLabel.c_str(), floorAlert), hudX, hudY + (int)(72 * hudScale), (int)(16 * hudScale), alertColor);
 
         Color modeColor = WHITE; const char* modeSymbol = "";
         switch (currentMode) {

@@ -2,6 +2,7 @@
 #include "EnemyData.h"
 #include "FactionData.h"
 #include "VariantData.h"
+#include "ExpeditionData.h"
 #include "Item.h"
 #include "Enemy.h"
 #include <string>
@@ -9,7 +10,8 @@
 
 int CalculateSpawnWeight(const SpawnRule& rule, int current_floor);
 
-// Applies flat per-floor growth to a base attribute value. Used for str/end/agi/intel/wil/per/lck.
+// Applies flat per-floor growth to a base attribute value, then a per-chunk multiplier on top.
+// Used for str/end/agi/intel/wil/per/lck.
 int CalculateScaledAttribute(int baseValue, int current_floor);
 
 // Rolls this archetype's weapon count, type, and material tier into real Item instances, folding in
@@ -44,10 +46,15 @@ int GetEnemyDetectionRadius(const Enemy& enemy);
 // relation) wins. STANCE_NEUTRAL if neither archetype is found or nothing has an opinion.
 FactionStance GetStance(const Enemy& actor, const Enemy& target);
 
-// Weighted pick from G_SPAWN_RULES for a 1-based floor number. Null if nothing can spawn.
-const EnemyArchetype* PickSpawnArchetype(int current_floor);
+// Weighted pick from G_SPAWN_RULES. Depth math runs first (min/max floor, weight per floor), then the
+// expedition theme scales the result: on-theme archetypes by themeMultiplier, the rest by offThemeMultiplier.
+// Null if nothing can spawn.
+const EnemyArchetype* PickSpawnArchetype(const FloorParams& params);
 
 // Builds a living Enemy from an archetype: scaled attributes/HP/MP/FP, glyph, color, rolled loadout.
 // Also rolls a chance at a variant tag (Archer, Warrior, Master, etc, see VariantData.h) which can
 // shift stats, armor, weight, detection radius, and add weapon types to the loadout roll.
-Enemy CreateEnemy(const EnemyArchetype& archetype, int floorNumber, int x, int y);
+// forcedVariantId skips the random variant roll and applies that variant (warband leaders). Unknown ids and
+// variants the archetype excludes are ignored, and the enemy spawns plain.
+// variantChanceBonus adds percent points to the chance of rolling a variant tag (floor modifiers).
+Enemy CreateEnemy(const EnemyArchetype& archetype, int floorNumber, int x, int y, const std::string& forcedVariantId = "", int variantChanceBonus = 0);

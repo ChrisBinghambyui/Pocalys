@@ -126,6 +126,7 @@
   <ItemGroup>
     <ClCompile Include="AbilityData.cpp" />
     <ClCompile Include="AbilityHotbar.cpp" />
+    <ClCompile Include="Alert.cpp" />
     <ClCompile Include="ArrowData.cpp" />
     <ClCompile Include="Behaviordata.cpp" />
     <ClCompile Include="Braindata.cpp" />
@@ -136,9 +137,12 @@
     <ClCompile Include="Enemybehavior.cpp" />
     <ClCompile Include="EnemyData.cpp" />
     <ClCompile Include="EnemyFactory.cpp" />
+    <ClCompile Include="ExpeditionData.cpp" />
     <ClCompile Include="FactionConflict.cpp" />
     <ClCompile Include="FactionData.cpp" />
     <ClCompile Include="FeatData.cpp" />
+    <ClCompile Include="FloorModifierData.cpp" />
+    <ClCompile Include="FloorPopulation.cpp" />
     <ClCompile Include="HotbarUI.cpp" />
     <ClCompile Include="ItemData.cpp" />
     <ClCompile Include="LineOfSight.cpp" />
@@ -150,6 +154,8 @@
     <ClCompile Include="SkillData.cpp" />
     <ClCompile Include="SkillScaling.cpp" />
     <ClCompile Include="Squad.cpp" />
+    <ClCompile Include="StashData.cpp" />
+    <ClCompile Include="StashUI.cpp" />
     <ClCompile Include="TargetingUI.cpp" />
     <ClCompile Include="TitleScreen.cpp" />
     <ClCompile Include="UIScale.cpp" />
@@ -163,6 +169,7 @@
   <ItemGroup>
     <ClInclude Include="AbilityData.h" />
     <ClInclude Include="AbilityHotbar.h" />
+    <ClInclude Include="Alert.h" />
     <ClInclude Include="ArrowData.h" />
     <ClInclude Include="Behaviordata.h" />
     <ClInclude Include="Braindata.h" />
@@ -175,9 +182,12 @@
     <ClInclude Include="Enemybehavior.h" />
     <ClInclude Include="EnemyData.h" />
     <ClInclude Include="EnemyFactory.h" />
+    <ClInclude Include="ExpeditionData.h" />
     <ClInclude Include="FactionConflict.h" />
     <ClInclude Include="FactionData.h" />
     <ClInclude Include="FeatData.h" />
+    <ClInclude Include="FloorModifierData.h" />
+    <ClInclude Include="FloorPopulation.h" />
     <ClInclude Include="HotbarUI.h" />
     <ClInclude Include="Item.h" />
     <ClInclude Include="ItemData.h" />
@@ -190,6 +200,8 @@
     <ClInclude Include="SkillData.h" />
     <ClInclude Include="SkillScaling.h" />
     <ClInclude Include="Squad.h" />
+    <ClInclude Include="StashData.h" />
+    <ClInclude Include="StashUI.h" />
     <ClInclude Include="TargetingUI.h" />
     <ClInclude Include="TitleScreen.h" />
     <ClInclude Include="UIScale.h" />

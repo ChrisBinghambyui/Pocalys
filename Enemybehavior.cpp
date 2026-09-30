@@ -1,4 +1,5 @@
 #include "EnemyBehavior.h"
+#include "Alert.h"
 #include "BrainData.h"
 #include "EnemyFactory.h"
 #include "FactionData.h"
@@ -14,8 +15,18 @@ static bool IsPlayerHostileTarget(const Enemy& actor)
     {
         return false;
     }
-    std::vector<std::string> livingTag = { "living" };
-    return GetFactionStance(archetype->factionIds, livingTag) == STANCE_HOSTILE;
+
+    // Default is hostile. A "living"-tag hostility check would let every living-tagged monster read
+    // the player as a faction-mate through its own living tag; only an explicit opt-out changes that.
+    for (size_t i = 0; i < archetype->factionIds.size(); i++)
+    {
+        const FactionData* faction = FindFaction(archetype->factionIds[i]);
+        if (faction != nullptr && faction->friendlyToPlayer)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool HasSightOf(const AIContext& ctx, float targetX, float targetY)
@@ -40,6 +51,14 @@ static void AcquireTarget(const AIContext& ctx)
 {
     Enemy& self = ctx.self;
     float radius = (float)GetEnemyDetectionRadius(self);
+    if (IsFloorSearching(ctx.floorAlert))
+    {
+        radius += 3.0f;
+    }
+    else if (IsFloorWary(ctx.floorAlert))
+    {
+        radius += 1.0f;
+    }
 
     // Keep the current target while it stays reasonably close, even around a corner
     float keepX = 0.0f;
@@ -276,10 +295,19 @@ static void UpdateOneEnemy(const AIContext& ctx)
     if (self.hp < self.lastHp)
     {
         interrupted = true;
+        RaiseAlert(ctx.floorAlert, ALERT_EVENT_COMBAT_HIT);
+        if (self.isDead)
+        {
+            RaiseAlert(ctx.floorAlert, ALERT_EVENT_ENEMY_KILLED);
+        }
     }
     if (hasThreat != self.hadThreat)
     {
         interrupted = true;
+        if (hasThreat)
+        {
+            RaiseAlert(ctx.floorAlert, ALERT_EVENT_SPOTTED);
+        }
     }
     self.lastHp = self.hp;
     self.hadThreat = hasThreat;
@@ -343,7 +371,7 @@ static void UpdateOneEnemy(const AIContext& ctx)
     ApplyMovement(ctx);
 }
 
-void UpdateEnemyBehaviors(std::vector<Enemy>& enemies, Player& player, float dt, const PositionFreeFn& isPositionFree, const TileOpaqueFn& isOpaque, const NavMesh& navMesh, std::string& actionMessage)
+void UpdateEnemyBehaviors(std::vector<Enemy>& enemies, Player& player, float dt, const PositionFreeFn& isPositionFree, const TileOpaqueFn& isOpaque, const NavMesh& navMesh, const std::vector<Room>& rooms, int& floorAlert, std::string& actionMessage)
 {
     for (size_t i = 0; i < enemies.size(); i++)
     {
@@ -351,7 +379,7 @@ void UpdateEnemyBehaviors(std::vector<Enemy>& enemies, Player& player, float dt,
         {
             continue;
         }
-        AIContext ctx = { enemies[i], enemies, player, dt, isPositionFree, isOpaque, navMesh, actionMessage };
+        AIContext ctx = { enemies[i], enemies, player, dt, isPositionFree, isOpaque, navMesh, floorAlert, rooms, actionMessage };
         UpdateOneEnemy(ctx);
     }
 }

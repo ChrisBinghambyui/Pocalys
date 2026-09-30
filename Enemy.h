@@ -31,6 +31,13 @@ struct Enemy {
     float homeY = 0.0f;
     std::string variantId = ""; // Empty if no variant tag rolled. See VariantData.h.
 
+    // Set by PopulateFloor (FloorPopulation.cpp) for enemies spawned as part of a placed group.
+    int groupId = -1;                 // Members of one group share an id and squad together whatever their archetype. -1 = ungrouped.
+    std::string brainOverrideId = ""; // Key into G_BRAINS. Beats the archetype's brain when not empty.
+    int detectionBonus = 0;           // Floor modifier bonus, baked in at spawn so a revisited floor stays consistent
+
+    int patrolRoomIndex = -1; // Index into the floor's room list. -1 = no patrol goal, needs a fresh pick.
+
     // Squad formation state, set by UpdateSquads (Squad.cpp), read by follow_squad_order.
     bool hasSquadSlot = false;
     float squadSlotX = 0.0f;

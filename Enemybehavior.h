@@ -12,4 +12,4 @@
 //      the last one finished, timed out, or was interrupted (took damage, gained or lost a target),
 //   4. runs the behavior, then moves the enemy through the shared movement step.
 // actionMessage is written to when an enemy hits the player.
-void UpdateEnemyBehaviors(std::vector<Enemy>& enemies, Player& player, float dt, const PositionFreeFn& isPositionFree, const TileOpaqueFn& isOpaque, const NavMesh& navMesh, std::string& actionMessage);
+void UpdateEnemyBehaviors(std::vector<Enemy>& enemies, Player& player, float dt, const PositionFreeFn& isPositionFree, const TileOpaqueFn& isOpaque, const NavMesh& navMesh, const std::vector<Room>& rooms, int& floorAlert, std::string& actionMessage);

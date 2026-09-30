@@ -1,4 +1,5 @@
 #include "BehaviorData.h"
+#include "Alert.h"
 #include "EnemyFactory.h"
 #include "raylib.h"
 #include <cmath>
@@ -214,6 +215,10 @@ static float ScoreIdle(const AIContext& ctx)
     {
         return THREAT_PRESENT_IDLE_SCORE;
     }
+    if (IsFloorWary(ctx.floorAlert))
+    {
+        return 0.0f; // The dungeon doesn't stand around once it's been stirred up
+    }
     return 1.0f;
 }
 
@@ -236,6 +241,10 @@ static float ScoreWander(const AIContext& ctx)
     if (EnemyHasTarget(ctx.self))
     {
         return THREAT_PRESENT_IDLE_SCORE;
+    }
+    if (IsFloorWary(ctx.floorAlert))
+    {
+        return 0.0f; // Patrol takes over: aimless wandering isn't what a wary floor does
     }
     return 1.0f;
 }
@@ -565,6 +574,141 @@ static BehaviorStatus UpdateSquadOrder(const AIContext& ctx)
     return BEHAVIOR_RUNNING;
 }
 
+// ---------- Patrol ----------
+
+static const float PATROL_JOIN_RADIUS = 8.0f; // Same-faction allies already headed somewhere within this range get joined instead of picking a fresh room
+
+static std::string GetPatrolFactionId(const Enemy& enemy)
+{
+    const EnemyArchetype* archetype = FindEnemyArchetype(enemy.archetypeId);
+    if (archetype == nullptr || archetype->factionIds.empty())
+    {
+        return "";
+    }
+    return archetype->factionIds[0];
+}
+
+static int PickPatrolRoomIndex(const AIContext& ctx)
+{
+    std::string myFaction = GetPatrolFactionId(ctx.self);
+    if (!myFaction.empty())
+    {
+        for (const auto& other : ctx.enemies)
+        {
+            if (&other == &ctx.self || other.isDead)
+            {
+                continue;
+            }
+            if (other.patrolRoomIndex < 0)
+            {
+                continue;
+            }
+            if (GetPatrolFactionId(other) != myFaction)
+            {
+                continue;
+            }
+            float dx = other.x - ctx.self.x;
+            float dy = other.y - ctx.self.y;
+            if (sqrtf(dx * dx + dy * dy) <= PATROL_JOIN_RADIUS)
+            {
+                return other.patrolRoomIndex; // Join the pack instead of scattering
+            }
+        }
+    }
+
+    int currentRoom = -1;
+    float bestCurrentDistSq = 1000000.0f;
+    for (size_t i = 0; i < ctx.rooms.size(); i++)
+    {
+        float dx = (float)ctx.rooms[i].centerX() - ctx.self.x;
+        float dy = (float)ctx.rooms[i].centerY() - ctx.self.y;
+        float distSq = dx * dx + dy * dy;
+        if (distSq < bestCurrentDistSq)
+        {
+            bestCurrentDistSq = distSq;
+            currentRoom = (int)i;
+        }
+    }
+
+    if (ctx.rooms.size() <= 1)
+    {
+        return 0;
+    }
+
+    int roomIndex = currentRoom;
+    while (roomIndex == currentRoom)
+    {
+        roomIndex = GetRandomValue(0, (int)ctx.rooms.size() - 1);
+    }
+    return roomIndex;
+}
+
+static float ScorePatrol(const AIContext& ctx)
+{
+    if (EnemyHasTarget(ctx.self))
+    {
+        return 0.0f; // Hunt, formation, or attack takes priority
+    }
+    if (!IsFloorWary(ctx.floorAlert))
+    {
+        return 0.0f; // Below the threshold, ordinary Idle/Wander still apply
+    }
+    if (ctx.rooms.empty())
+    {
+        return 0.0f;
+    }
+    return 1.0f;
+}
+
+static void StartPatrol(const AIContext& ctx)
+{
+    Enemy& self = ctx.self;
+    self.moveSpeedScale = 0.7f;
+    self.path.clear();
+    self.pathIndex = 0;
+    self.repathTimer = 0.0f;
+    self.patrolRoomIndex = PickPatrolRoomIndex(ctx);
+}
+
+static BehaviorStatus UpdatePatrol(const AIContext& ctx)
+{
+    Enemy& self = ctx.self;
+    if (self.patrolRoomIndex < 0 || self.patrolRoomIndex >= (int)ctx.rooms.size())
+    {
+        StopEnemyMovement(self);
+        return BEHAVIOR_FINISHED;
+    }
+
+    float goalX = (float)ctx.rooms[self.patrolRoomIndex].centerX();
+    float goalY = (float)ctx.rooms[self.patrolRoomIndex].centerY();
+
+    float dx = goalX - self.x;
+    float dy = goalY - self.y;
+    if (sqrtf(dx * dx + dy * dy) <= PATH_ARRIVE_DISTANCE * 3.0f)
+    {
+        StopEnemyMovement(self);
+        self.patrolRoomIndex = -1; // Arrived, next pick chooses somewhere new (or re-joins a moving ally)
+        return BEHAVIOR_FINISHED;
+    }
+
+    self.repathTimer -= ctx.dt;
+    if (self.repathTimer <= 0.0f || self.path.empty())
+    {
+        RequestPath(ctx, goalX, goalY);
+        float spread = (float)GetRandomValue(0, 100) / 100.0f;
+        self.repathTimer = HUNT_REPATH_INTERVAL_MIN + spread * (HUNT_REPATH_INTERVAL_MAX - HUNT_REPATH_INTERVAL_MIN);
+    }
+
+    if (self.path.empty())
+    {
+        SetMoveToward(self, goalX, goalY, 0.7f);
+        return BEHAVIOR_RUNNING;
+    }
+
+    FollowStoredPath(self, 0.7f);
+    return BEHAVIOR_RUNNING;
+}
+
 // ---------- Registry ----------
 // To add a behavior: write its score/start/update above, then add one row here.
 
@@ -575,6 +719,7 @@ std::vector<BehaviorDef> G_BEHAVIORS = {
     { "hunt",         "Hunt",         4.0f, ScoreHunt,        StartHunt,        UpdateHunt },
     { "melee_attack", "Melee Attack", 3.0f, ScoreMeleeAttack, StartMeleeAttack, UpdateMeleeAttack },
     { "follow_squad_order", "Follow Squad Order", 5.0f, ScoreSquadOrder, StartSquadOrder, UpdateSquadOrder },
+    { "patrol",       "Patrol",       20.0f, ScorePatrol,      StartPatrol,      UpdatePatrol },
     { "flee",         "Flee",         3.0f, ScoreFlee,        StartFlee,        UpdateFlee }
 };
 
