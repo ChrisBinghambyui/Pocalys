@@ -635,6 +635,11 @@ void ResolveEnemyArchetypeDefaults()
         "ratnik_scavenger", "stronghold_wolf_rider", "dungeon_raider",
         "inferno_imp", "academy_djinn", "academy_gremlin"
     };
+    // Creatures that ignore the player. Everything else is hostile on sight. Add ids here to make a peaceful one.
+    static const std::vector<std::string> neutralToPlayerIds = {
+        "haven_peasant", "haven_squire", "haven_bowman", "haven_griffin",
+        "haven_cleric", "haven_cavalier", "haven_angel"
+    };
     static const std::vector<std::string> squadBrainIds = {
         "stronghold_goblin", "stronghold_orc", "haven_squire", "haven_bowman",
         "bog_witch", "academy_mage", "stronghold_wolf_rider", "academy_gremlin",
@@ -655,6 +660,13 @@ void ResolveEnemyArchetypeDefaults()
             if (archetype.id == id)
             {
                 archetype.role = ROLE_SKIRMISHER;
+            }
+        }
+        for (const auto& id : neutralToPlayerIds)
+        {
+            if (archetype.id == id)
+            {
+                archetype.playerStance = STANCE_NEUTRAL;
             }
         }
         for (const auto& id : squadBrainIds)

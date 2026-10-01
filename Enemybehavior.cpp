@@ -16,15 +16,10 @@ static bool IsPlayerHostileTarget(const Enemy& actor)
         return false;
     }
 
-    // Default is hostile. A "living"-tag hostility check would let every living-tagged monster read
-    // the player as a faction-mate through its own living tag; only an explicit opt-out changes that.
-    for (size_t i = 0; i < archetype->factionIds.size(); i++)
+    // The archetype's playerStance is the single source. Hostile attacks on sight, anything else ignores the player.
+    if (archetype->playerStance != STANCE_HOSTILE)
     {
-        const FactionData* faction = FindFaction(archetype->factionIds[i]);
-        if (faction != nullptr && faction->friendlyToPlayer)
-        {
-            return false;
-        }
+        return false;
     }
     return true;
 }
@@ -47,6 +42,26 @@ static float DistanceBetween(float x1, float y1, float x2, float y2)
 
 // ---------- Targeting ----------
 
+// A hostile player in sight and closer than the enemy's current target takes priority, so nothing keeps
+// fighting a rival while the player stands next to it.
+static bool PlayerShouldTakeOver(const AIContext& ctx, float currentTargetDistance, float radius)
+{
+    if (!IsPlayerHostileTarget(ctx.self))
+    {
+        return false;
+    }
+    float playerDistance = DistanceBetween(ctx.self.x, ctx.self.y, ctx.player.x, ctx.player.y);
+    if (playerDistance > radius)
+    {
+        return false;
+    }
+    if (playerDistance >= currentTargetDistance)
+    {
+        return false;
+    }
+    return HasSightOf(ctx, ctx.player.x, ctx.player.y);
+}
+
 static void AcquireTarget(const AIContext& ctx)
 {
     Enemy& self = ctx.self;
@@ -65,9 +80,17 @@ static void AcquireTarget(const AIContext& ctx)
     float keepY = 0.0f;
     if (GetTargetPosition(ctx, keepX, keepY))
     {
-        if (DistanceBetween(self.x, self.y, keepX, keepY) <= radius * TARGET_KEEP_MULTIPLIER)
+        float keepDistance = DistanceBetween(self.x, self.y, keepX, keepY);
+        if (keepDistance <= radius * TARGET_KEEP_MULTIPLIER)
         {
-            return;
+            if (self.targetIsPlayer)
+            {
+                return;
+            }
+            if (!PlayerShouldTakeOver(ctx, keepDistance, radius))
+            {
+                return;
+            }
         }
     }
 

@@ -75,6 +75,18 @@ int DepositAllToStash(Player& player)
     return movedCount;
 }
 
+int DepositInventoryToStash(Player& player)
+{
+    int movedCount = 0;
+    for (size_t i = 0; i < player.inventory.size(); i++)
+    {
+        AddItemToStash(player.inventory[i]);
+        movedCount++;
+    }
+    player.inventory.clear();
+    return movedCount;
+}
+
 void WithdrawFlaggedFromStash(const std::vector<bool>& flags, Player& player)
 {
     // Back to front so erasing never shifts an entry we have yet to visit

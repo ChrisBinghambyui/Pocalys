@@ -1,5 +1,6 @@
 #pragma once
 #include "raylib.h"
+#include "FactionData.h"
 #include <string>
 #include <vector>
 
@@ -55,6 +56,7 @@ struct EnemyArchetype
     std::vector<std::string> excludedVariantIds; // Variant ids this archetype can never roll (e.g. no hands for a bow)
     std::string brainId = ""; // Key into G_BRAINS (BrainData.h). Empty falls back to the legacy brain enum.
     EnemyRole role = ROLE_FRONTLINE;
+    FactionStance playerStance = STANCE_HOSTILE; // HOSTILE attacks the player on sight, NEUTRAL ignores them. The only source for both AI and LOOK.
 };
 
 struct SpawnRule

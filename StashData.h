@@ -21,5 +21,8 @@ void AddItemToStash(const Item& item);
 // Moves the inventory, every equipped item, amulets, and rings into the stash. Returns how many items moved.
 int DepositAllToStash(Player& player);
 
+// Moves only the inventory into the stash. Equipped items, amulets, and rings stay on the character.
+int DepositInventoryToStash(Player& player);
+
 // Moves every stash entry whose flag is true into the player's inventory. flags is parallel to G_STASH.items.
 void WithdrawFlaggedFromStash(const std::vector<bool>& flags, Player& player);

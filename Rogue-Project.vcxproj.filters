@@ -129,6 +129,21 @@
     <ClCompile Include="ExpeditionData.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SaveFile.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MetaSave.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RosterData.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RosterUI.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DungeonGen.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -255,6 +270,21 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="StashUI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SaveFile.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MetaSave.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RosterData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RosterUI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DungeonGen.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

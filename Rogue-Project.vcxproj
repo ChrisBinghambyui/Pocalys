@@ -133,6 +133,7 @@
     <ClCompile Include="CharacterGenerator.cpp" />
     <ClCompile Include="CharacterSheetState.cpp" />
     <ClCompile Include="Combat.cpp" />
+    <ClCompile Include="DungeonGen.cpp" />
     <ClCompile Include="Durability.cpp" />
     <ClCompile Include="Enemybehavior.cpp" />
     <ClCompile Include="EnemyData.cpp" />
@@ -148,9 +149,13 @@
     <ClCompile Include="LineOfSight.cpp" />
     <ClCompile Include="MaterialData.cpp" />
     <ClCompile Include="MenuHubUI.cpp" />
+    <ClCompile Include="MetaSave.cpp" />
     <ClCompile Include="Navmesh.cpp" />
     <ClCompile Include="RaceData.cpp" />
     <ClCompile Include="Rogue-Project.cpp" />
+    <ClCompile Include="RosterData.cpp" />
+    <ClCompile Include="RosterUI.cpp" />
+    <ClCompile Include="SaveFile.cpp" />
     <ClCompile Include="SkillData.cpp" />
     <ClCompile Include="SkillScaling.cpp" />
     <ClCompile Include="Squad.cpp" />
@@ -177,6 +182,7 @@
     <ClInclude Include="CharacterSheetState.h" />
     <ClInclude Include="Combat.h" />
     <ClInclude Include="DungeonData.h" />
+    <ClInclude Include="DungeonGen.h" />
     <ClInclude Include="Durability.h" />
     <ClInclude Include="Enemy.h" />
     <ClInclude Include="Enemybehavior.h" />
@@ -194,9 +200,13 @@
     <ClInclude Include="LineOfSight.h" />
     <ClInclude Include="MaterialData.h" />
     <ClInclude Include="MenuHubUI.h" />
+    <ClInclude Include="MetaSave.h" />
     <ClInclude Include="Navmesh.h" />
     <ClInclude Include="Player.h" />
     <ClInclude Include="RaceData.h" />
+    <ClInclude Include="RosterData.h" />
+    <ClInclude Include="RosterUI.h" />
+    <ClInclude Include="SaveFile.h" />
     <ClInclude Include="SkillData.h" />
     <ClInclude Include="SkillScaling.h" />
     <ClInclude Include="Squad.h" />

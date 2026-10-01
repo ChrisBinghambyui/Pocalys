@@ -61,7 +61,13 @@ bool GetTargetPosition(const AIContext& ctx, float& outX, float& outY)
 void RequestPath(const AIContext& ctx, float goalX, float goalY)
 {
     Enemy& self = ctx.self;
-    self.path = ctx.navMesh.FindPath(self.x, self.y, goalX, goalY, ENEMY_COLLISION_RADIUS);
+    // NavMesh works in tile-space centers, enemies store the tile's top-left. Convert in, then back out.
+    self.path = ctx.navMesh.FindPath(self.x + 0.5f, self.y + 0.5f, goalX + 0.5f, goalY + 0.5f, ENEMY_COLLISION_RADIUS);
+    for (size_t i = 0; i < self.path.size(); i++)
+    {
+        self.path[i].x -= 0.5f;
+        self.path[i].y -= 0.5f;
+    }
     self.pathIndex = 0;
 }
 

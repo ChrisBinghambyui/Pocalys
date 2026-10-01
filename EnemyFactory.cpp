@@ -172,15 +172,9 @@ std::string GetEnemyIntentText(const Enemy& enemy)
         return "unreadable";
     }
 
-    std::vector<std::string> livingTag = { "living" };
-    FactionStance stance = GetFactionStance(archetype->factionIds, livingTag);
-    if (stance == STANCE_HOSTILE)
+    if (archetype->playerStance == STANCE_HOSTILE)
     {
         return "hostile";
-    }
-    if (stance == STANCE_ALLIED)
-    {
-        return "friendly";
     }
     return "neutral";
 }

@@ -14,9 +14,13 @@
 #include "TitleScreen.h"
 #include "EnemyFactory.h"
 #include "FloorPopulation.h"
+#include "DungeonGen.h"
 #include "StashData.h"
 #include "StashUI.h"
 #include "FloorModifierData.h"
+#include "MetaSave.h"
+#include "RosterData.h"
+#include "RosterUI.h"
 #include "FeatData.h"
 #include "AbilityHotbar.h"
 #include "AbilityData.h"
@@ -34,8 +38,8 @@
 #include "Alert.h"
 #include <string>
 
-const int MAP_WIDTH = 80;
-const int MAP_HEIGHT = 45;
+const int MAP_WIDTH = 100;
+const int MAP_HEIGHT = 70;
 const int MAX_ROOMS = 15;
 const int PLAYER_VISION_RADIUS = 8; // Tiles of line-of-sight range for fog-of-war reveal
 const float PLAYER_MOVE_SPEED = 5.0f;       // Tiles per second, placeholder until playtested
@@ -50,7 +54,8 @@ enum GameState {
     STATE_TITLE,
     STATE_TAVERN,
     STATE_GAMEPLAY,
-    STATE_STASH
+    STATE_STASH,
+    STATE_ROSTER
 };
 
 
@@ -122,28 +127,12 @@ void GenerateFloor(TileType map[MAP_WIDTH][MAP_HEIGHT], bool explored[MAP_WIDTH]
         }
     }
 
-    int attempts = 0;
-    while (rooms.size() < MAX_ROOMS && attempts < 100) {
-        attempts++;
-        int rw = GetRandomValue(4, 8), rh = GetRandomValue(4, 8);
-        int rx = GetRandomValue(1, MAP_WIDTH - rw - 1), ry = GetRandomValue(1, MAP_HEIGHT - rh - 1);
-        Room nr = { rx, ry, rw, rh };
-
-        bool failed = false;
-        for (const Room& orm : rooms) { if (nr.intersects(orm)) { failed = true; break; } }
-        if (failed) continue;
-
-        for (int x = nr.x; x < nr.x + nr.width; x++) {
-            for (int y = nr.y; y < nr.y + nr.height; y++) map[x][y] = TILE_FLOOR;
+    std::vector<TileType> layout;
+    BuildDungeonLayout(MAP_WIDTH, MAP_HEIGHT, MAX_ROOMS, layout, rooms);
+    for (int x = 0; x < MAP_WIDTH; x++) {
+        for (int y = 0; y < MAP_HEIGHT; y++) {
+            map[x][y] = layout[x * MAP_HEIGHT + y];
         }
-
-        if (!rooms.empty()) {
-            int pcx = rooms.back().centerX(), pcy = rooms.back().centerY();
-            int ncx = nr.centerX(), ncy = nr.centerY();
-            for (int x = std::min(pcx, ncx); x <= std::max(pcx, ncx); x++) map[x][pcy] = TILE_FLOOR;
-            for (int y = std::min(pcy, ncy); y <= std::max(pcy, ncy); y++) map[ncx][y] = TILE_FLOOR;
-        }
-        rooms.push_back(nr);
     }
 
     map[rooms[0].centerX()][rooms[0].centerY()] = TILE_STAIR_UP;
@@ -270,6 +259,7 @@ int main()
     InitTitleScreen();
     ResolveWeaponSkillIds();
     ResolveEnemyArchetypeDefaults();
+    LoadMetaGame();
 
     TileType map[MAP_WIDTH][MAP_HEIGHT];
     bool explored[MAP_WIDTH][MAP_HEIGHT] = { false };
@@ -286,6 +276,9 @@ int main()
     int stashPatronIndex = 0;    // Patron picked before the pack screen, restored after it (mouse hover can move the selection)
     bool extractArmed = false;   // First Space on the extraction tile arms it, the second one leaves
     bool showExtractScreen = false;
+    RosterViewState rosterView;
+    int pendingRosterIndex = -1;   // Veteran picked on the roster screen, -1 = a fresh recruit is starting instead
+    bool rosterPickReady = false;  // True for the one frame after the roster screen, forces the tavern confirm through
     std::string extractSummary = "";
     std::vector<std::string> activeModifierIds; // Modifier ids (G_FLOOR_MODIFIERS) in force this expedition. Contracts fill this later.
     int playerVisionMod = 0;                    // Summed visionRadiusMod of the active modifiers
@@ -368,6 +361,12 @@ int main()
             }
             if (IsKeyPressed(KEY_R)) {
                 tavernCandidates = GenerateTavernCandidates(6);
+            }
+
+            if (IsKeyPressed(KEY_V) && !G_ROSTER.empty())
+            {
+                rosterView = RosterViewState();
+                currentState = STATE_ROSTER;
             }
 
             for (int k = 0; k < 6; k++) {
@@ -481,9 +480,19 @@ int main()
             }
 
             std::string hint = "[WASD / Arrows / 1-6] Select  |  [ENTER / Click] Begin Quest  |  [R] Reroll Patrons";
+            if (!G_ROSTER.empty())
+            {
+                hint += "  |  [V] Veterans (" + std::to_string((int)G_ROSTER.size()) + ")";
+            }
             int hintFontSize = (int)(22 * uiScale);
             DrawText(hint.c_str(), GetScreenWidth() / 2 - MeasureText(hint.c_str(), hintFontSize) / 2, GetScreenHeight() - (int)(50 * uiScale), hintFontSize, GOLD);
             EndDrawing();
+
+            if (rosterPickReady)
+            {
+                rosterPickReady = false;
+                confirmSelection = true;
+            }
 
             if (confirmSelection && !stashPackDone && !G_STASH.items.empty())
             {
@@ -499,11 +508,21 @@ int main()
             }
 
             if (confirmSelection) {
-                ApplyProfileToPlayer(tavernCandidates[selectedCandidate], player);
+                if (pendingRosterIndex >= 0)
+                {
+                    TakeFromRoster(pendingRosterIndex, player);
+                    pendingRosterIndex = -1;
+                    SaveMetaGame(); // The veteran is now out on an expedition and off the roster until they extract
+                }
+                else
+                {
+                    ApplyProfileToPlayer(tavernCandidates[selectedCandidate], player);
+                }
                 FillEmptyHotbarSlots(player);
                 if (stashPackDone)
                 {
                     WithdrawFlaggedFromStash(stashLoadout.packed, player);
+                    SaveMetaGame();
                     stashPackDone = false;
                 }
 
@@ -543,6 +562,24 @@ int main()
             continue;
         }
 
+        // --- ROSTER STATE ---
+        if (currentState == STATE_ROSTER)
+        {
+            int rosterPick = -1;
+            RosterUIAction rosterAction = UpdateAndDrawRoster(rosterView, rosterPick);
+            if (rosterAction == ROSTER_UI_BEGIN)
+            {
+                pendingRosterIndex = rosterPick;
+                rosterPickReady = true;
+                currentState = STATE_TAVERN;
+            }
+            else if (rosterAction == ROSTER_UI_BACK)
+            {
+                currentState = STATE_TAVERN;
+            }
+            continue;
+        }
+
         // --- STASH LOADOUT STATE ---
         if (currentState == STATE_STASH)
         {
@@ -554,6 +591,7 @@ int main()
             }
             else if (stashAction == STASH_UI_BACK)
             {
+                pendingRosterIndex = -1; // Backing out of the pack screen cancels a veteran pick too
                 currentState = STATE_TAVERN;
             }
             continue;
@@ -923,6 +961,21 @@ int main()
                             else if (hpPercent >= 0.2f) actionMessage = "The " + enemyName + " looks severely wounded!";
                             else actionMessage = "The " + enemyName + " is clinging to life...";
                             actionMessage += " It seems " + GetEnemyIntentText(enemy) + " toward you.";
+                            if (GetEnemyIntentText(enemy) == "hostile")
+                            {
+                                if (enemy.targetIsPlayer)
+                                {
+                                    actionMessage += " It has noticed you.";
+                                }
+                                else if (enemy.targetIndex >= 0)
+                                {
+                                    actionMessage += " It is busy with something else.";
+                                }
+                                else
+                                {
+                                    actionMessage += " It has not noticed you.";
+                                }
+                            }
                             break;
                         }
                         case MODE_SPEAK: actionMessage = "The " + enemyName + " growls hostility at you!"; break;
@@ -1000,7 +1053,7 @@ int main()
                     case TILE_FLOOR:
                         switch (currentMode) {
                         case MODE_LOOK:  actionMessage = "Bare, dusty dungeon floor."; break;
-                        case MODE_SPEAK: actionMessage = "You talk to the floor tiles. Silence."; break;
+                        case MODE_SPEAK: actionMessage = "You talk to the floor tiles. They don't respond."; break;
                         case MODE_GRAB:  actionMessage = "You touch the cold floor."; break;
                         case MODE_STEAL: actionMessage = "There is nothing on this tile to steal."; break;
                         }
@@ -1027,7 +1080,28 @@ int main()
         camera.target.x += (targetX - camera.target.x) * 10.0f * GetFrameTime();
         camera.target.y += (targetY - camera.target.y) * 10.0f * GetFrameTime();
 
-        if (IsKeyPressed(KEY_SPACE) && !menuOpen) {
+        bool spaceUsedForExtract = false;
+        if (IsKeyPressed(KEY_SPACE) && !menuOpen && IsPlayerOnTile(map, player, TILE_EXTRACT))
+        {
+            spaceUsedForExtract = true;
+            if (!extractArmed)
+            {
+                extractArmed = true;
+                actionMessage = "Press Space again to leave the dungeon. Your pack will be banked.";
+            }
+            else
+            {
+                extractArmed = false;
+                int bankedCount = DepositInventoryToStash(player);
+                AddToRoster(player);
+                extractSummary = player.name + " returns to the tavern. Banked " + std::to_string(bankedCount) + " items, the stash now holds " + std::to_string((int)G_STASH.items.size()) + " stacks.";
+                SaveMetaGame();
+                showExtractScreen = true;
+                continue;
+            }
+        }
+
+        if (IsKeyPressed(KEY_SPACE) && !menuOpen && !spaceUsedForExtract) {
             // Same four-point circle check movement collision uses (see IsWorldPositionWalkable),
             // so "standing on the stair" means the same footprint here as it does for walls.
             float trueCenterX = player.x + 0.5f;
@@ -1199,6 +1273,26 @@ int main()
                 Vector2 enemyPos = { enemy.x * tileSize + tileSize / 2.0f, enemy.y * tileSize + tileSize / 2.0f };
                 DrawCircleV(slotPos, 5.0f, YELLOW);
                 DrawLineV(enemyPos, slotPos, Fade(YELLOW, 0.5f));
+            }
+        }
+
+        if (showNavDebug) {
+            for (size_t e = 0; e < enemies.size(); e++) {
+                const Enemy& debugEnemy = enemies[e];
+                if (debugEnemy.isDead) {
+                    continue;
+                }
+                Vector2 fromPos = { debugEnemy.x * tileSize + tileSize / 2.0f, debugEnemy.y * tileSize + tileSize / 2.0f };
+                if (debugEnemy.targetIsPlayer) {
+                    Vector2 toPos = { player.x * tileSize + tileSize / 2.0f, player.y * tileSize + tileSize / 2.0f };
+                    DrawLineV(fromPos, toPos, Fade(RED, 0.6f));
+                }
+                else if (debugEnemy.targetIndex >= 0 && debugEnemy.targetIndex < (int)enemies.size()) {
+                    const Enemy& debugTarget = enemies[debugEnemy.targetIndex];
+                    Vector2 toPos = { debugTarget.x * tileSize + tileSize / 2.0f, debugTarget.y * tileSize + tileSize / 2.0f };
+                    DrawLineV(fromPos, toPos, Fade(ORANGE, 0.6f));
+                }
+                DrawText(debugEnemy.behaviorId.c_str(), (int)fromPos.x - 14, (int)fromPos.y - 22, 10, WHITE);
             }
         }
 
@@ -1381,7 +1475,7 @@ int main()
             int titleFont = (int)(30 * pauseScale);
             DrawText("PAUSED", menuX + (menuWidth - MeasureText("PAUSED", titleFont)) / 2, menuY + (int)(24 * pauseScale), titleFont, GOLD);
 
-            const char* pauseOptions[] = { "Resume", "Save Game", "Load Game", "Options", "Return to Title", "Quit Game" };
+            const char* pauseOptions[] = { "Resume", "Save Game", "Load Game", "Options", "Abandon Run", "Quit (abandons run)" };
             int optionFont = (int)(26 * pauseScale);
             int rowHeight = (int)(48 * pauseScale);
             Vector2 mousePos = GetMousePosition();
