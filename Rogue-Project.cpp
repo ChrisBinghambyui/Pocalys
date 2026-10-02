@@ -1,5 +1,7 @@
 #pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
 #include <raylib.h>
+#include <rlgl.h>
+#include <raymath.h>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -36,6 +38,7 @@
 #include "NavMesh.h"
 #include "Squad.h"
 #include "Alert.h"
+#include "LightingShader.h"
 #include <string>
 
 const int MAP_WIDTH = 100;
@@ -48,7 +51,10 @@ const float PICKUP_RANGE = 0.8f;            // Tile units, distance for G to rea
 const float MELEE_ATTACK_RANGE = 1.2f;      // Tile units, distance for a left-click attack to reach an enemy
 const float MELEE_ATTACK_FACING_COS = 0.5f; // Minimum dot product between facing and to-enemy direction (~120 degree cone)
 const float INTERACT_RANGE = 1.6f;          // Tile units, reach for SPEAK / GRAB / STEAL. LOOK ignores it. 1.6 covers a diagonal neighbor.
+const float SPEAK_RANGE = 8.0f;             // Tile units, reach for SPEAK. You can call out across a room. GRAB / STEAL keep INTERACT_RANGE.
 const float ENEMY_CLICK_RADIUS = 0.6f;      // Tile units, forgiving radius around an enemy's true position for mouse-click interaction
+const float PLAYER_MODEL_SCALE = 0.45f;     // KayKit characters stand about 2 units tall, the old cube was 0.9
+const float PLAYER_MODEL_YAW_OFFSET = 0.0f; // Degrees. Set to 180 if the model walks backward
 
 enum GameState {
     STATE_TITLE,
@@ -243,6 +249,136 @@ static bool IsPlayerOnTile(TileType map[MAP_WIDTH][MAP_HEIGHT], const Player& pl
     return map[tileX][tileY] == tile;
 }
 
+// ---------- Isometric 3D view ----------
+// One tile is one world unit. Tile (x, y) occupies world X [x, x+1], Z [y, y+1]. Entity centers are (x + 0.5, y + 0.5).
+const bool ISO_USE_ORTHOGRAPHIC = true;   // false = perspective, worth trying both
+const float ISO_ORTHO_HEIGHT = 20.0f;     // World units visible top to bottom when orthographic
+const float ISO_PERSPECTIVE_FOV = 32.0f;
+const float ISO_CAMERA_RADIUS = 15.5f;          // Horizontal distance from the focus
+const float ISO_CAMERA_ROTATE_SPEED = 2.0f;     // Radians per second while Q or E is held
+const float ISO_CAMERA_START_YAW = 0.78539816f; // 45 degrees, the corner view you have now
+const float ISO_CAMERA_HEIGHT = 14.0f;
+const float WALL_HEIGHT = 1.0f;
+const float FLOOR_THICKNESS = 0.1f;
+const int ISO_DRAW_RADIUS = 30;           // Tiles around the camera focus that get drawn
+
+static void UpdateIsoCamera(Camera3D& cam, float focusX, float focusY, float yaw)
+{
+    cam.target = { focusX, 0.0f, focusY };
+    cam.position = { focusX + sinf(yaw) * ISO_CAMERA_RADIUS, ISO_CAMERA_HEIGHT, focusY + cosf(yaw) * ISO_CAMERA_RADIUS };
+}
+
+// Where the mouse ray meets the floor plane (y = 0), in tile-space units. Same meaning the old
+// GetScreenToWorld2D(...) / tileSize had, so facing, inspect clicks, and aim math carry over.
+static Vector2 GetMouseGroundTilePos(const Camera3D& cam)
+{
+    Ray ray = GetMouseRay(GetMousePosition(), cam);
+    if (ray.direction.y > -0.0001f)
+    {
+        Vector2 fallback = { cam.target.x, cam.target.z };
+        return fallback;
+    }
+    float distance = -ray.position.y / ray.direction.y;
+    Vector2 hit = { ray.position.x + ray.direction.x * distance, ray.position.z + ray.direction.z * distance };
+    return hit;
+}
+
+// Interior wall cubes can never be seen, so only draw walls touching a non-wall tile.
+static bool IsWallExposed(TileType map[MAP_WIDTH][MAP_HEIGHT], int x, int y)
+{
+    for (int dx = -1; dx <= 1; dx++)
+    {
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            int nx = x + dx;
+            int ny = y + dy;
+            if (nx < 0 || nx >= MAP_WIDTH || ny < 0 || ny >= MAP_HEIGHT)
+            {
+                continue;
+            }
+            if (map[nx][ny] != TILE_WALL)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+const float PLAYER_ANIM_FPS = 30.0f;
+
+// Raylib pairs animation bones to model bones by index. This reorders the animation into the
+// model's bone order by name. False (and the animation is left untouched) if any model bone is missing.
+static bool RemapAnimationToModel(const Model& model, ModelAnimation& anim)
+{
+    if (model.boneCount != anim.boneCount)
+    {
+        return false;
+    }
+
+    int boneCount = model.boneCount;
+    std::vector<int> animIndexForModelBone(boneCount, -1);
+    std::vector<int> modelIndexForAnimBone(boneCount, -1);
+    for (int m = 0; m < boneCount; m++)
+    {
+        std::string modelName = model.bones[m].name;
+        for (int a = 0; a < boneCount; a++)
+        {
+            std::string animName = anim.bones[a].name;
+            if (modelName == animName)
+            {
+                animIndexForModelBone[m] = a;
+                modelIndexForAnimBone[a] = m;
+                break;
+            }
+        }
+        if (animIndexForModelBone[m] < 0)
+        {
+            return false;
+        }
+    }
+
+    for (int f = 0; f < anim.frameCount; f++)
+    {
+        std::vector<Transform> reordered(boneCount);
+        for (int m = 0; m < boneCount; m++)
+        {
+            reordered[m] = anim.framePoses[f][animIndexForModelBone[m]];
+        }
+        for (int m = 0; m < boneCount; m++)
+        {
+            anim.framePoses[f][m] = reordered[m];
+        }
+    }
+
+    std::vector<BoneInfo> reorderedBones(boneCount);
+    for (int m = 0; m < boneCount; m++)
+    {
+        reorderedBones[m] = anim.bones[animIndexForModelBone[m]];
+        if (reorderedBones[m].parent >= 0)
+        {
+            reorderedBones[m].parent = modelIndexForAnimBone[reorderedBones[m].parent];
+        }
+    }
+    for (int m = 0; m < boneCount; m++)
+    {
+        anim.bones[m] = reorderedBones[m];
+    }
+    return true;
+}
+
+static ModelAnimation* FindAnimation(ModelAnimation* anims, int count, const std::string& name)
+{
+    for (int i = 0; i < count; i++)
+    {
+        if (name == anims[i].name)
+        {
+            return &anims[i];
+        }
+    }
+    return nullptr;
+}
+
 int main()
 {
     const int tileSize = 24;
@@ -314,10 +450,70 @@ int main()
     std::string aimingAbilityId = "";
     WeaponSwingState weaponSwing;
 
-    Camera2D camera = { 0 };
-    camera.offset = { screenWidth / 2.0f, screenHeight / 2.0f };
-    camera.rotation = 0.0f;
-    camera.zoom = 1.5f;
+    Camera3D camera3d = { 0 };
+    camera3d.up = { 0.0f, 1.0f, 0.0f };
+    if (ISO_USE_ORTHOGRAPHIC)
+    {
+        camera3d.projection = CAMERA_ORTHOGRAPHIC;
+        camera3d.fovy = ISO_ORTHO_HEIGHT;
+    }
+    else
+    {
+        camera3d.projection = CAMERA_PERSPECTIVE;
+        camera3d.fovy = ISO_PERSPECTIVE_FOV;
+    }
+    float cameraFocusX = 0.0f;
+    float cameraFocusY = 0.0f;
+    float cameraYaw = ISO_CAMERA_START_YAW;
+    UpdateIsoCamera(camera3d, cameraFocusX, cameraFocusY, cameraYaw);
+
+    LightingState lighting;
+    InitLighting(lighting);
+
+    Model playerModel = LoadModel("assets/models/Knight.glb");
+    bool playerModelReady = false;
+    const bool DEBUG_DISABLE_PLAYER_MODEL = false; // Temporary test, remove after
+
+    int generalAnimCount = 0;
+    int moveAnimCount = 0;
+    ModelAnimation* generalAnims = LoadModelAnimations("assets/animations/gltf/Rig_Medium/Rig_Medium_General.glb", &generalAnimCount);
+    ModelAnimation* moveAnims = LoadModelAnimations("assets/animations/gltf/Rig_Medium/Rig_Medium_MovementBasic.glb", &moveAnimCount);
+    for (int a = 0; a < generalAnimCount; a++)
+    {
+        RemapAnimationToModel(playerModel, generalAnims[a]);
+    }
+    for (int a = 0; a < moveAnimCount; a++)
+    {
+        RemapAnimationToModel(playerModel, moveAnims[a]);
+    }
+    ModelAnimation* idleAnim = FindAnimation(generalAnims, generalAnimCount, "Idle_A");
+    ModelAnimation* runAnim = FindAnimation(moveAnims, moveAnimCount, "Running_A");
+    ModelAnimation* currentAnim = nullptr;
+    int debugClipIndex = -1; // -1 = normal idle/run logic, 0 and up = forced clip. Press K to cycle.
+    int currentAnimFrame = 0;
+    float animFrameTimer = 0.0f;
+    float lastAnimPlayerX = 0.0f;
+    float lastAnimPlayerY = 0.0f;
+    std::string modelStatus = "Model: ";
+    if (FileExists("assets/models/Knight.glb"))
+    {
+        modelStatus += "file found in " + std::string(GetWorkingDirectory());
+    }
+    else
+    {
+        modelStatus += "FILE NOT FOUND, working directory is " + std::string(GetWorkingDirectory());
+    }
+    if (playerModel.meshCount > 0)
+    {
+        playerModelReady = true;
+        if (lighting.ready)
+        {
+            for (int m = 0; m < playerModel.materialCount; m++)
+            {
+                playerModel.materials[m].shader = lighting.shader;
+            }
+        }
+    }
 
     bool keepRunning = true;
     while (keepRunning && !WindowShouldClose())
@@ -551,7 +747,8 @@ int main()
                 firstFloor.alertLevel = floorAlert;
                 dungeon.push_back(firstFloor);
 
-                camera.target = { (float)player.x * tileSize + (tileSize / 2.0f), (float)player.y * tileSize + (tileSize / 2.0f) };
+                cameraFocusX = player.x + 0.5f;
+                cameraFocusY = player.y + 0.5f;
                 actionMessage = "You descend into the catacombs as " + player.name + " the " + player.className + ".";
                 if (currentExpedition != nullptr)
                 {
@@ -649,8 +846,19 @@ int main()
         }
 
         // --- GAMEPLAY INPUT & UPDATE ---
-        camera.offset = { GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f };
-
+        if (!showPauseMenu && !showMenuHub)
+        {
+            if (IsKeyDown(KEY_Q))
+            {
+                cameraYaw -= ISO_CAMERA_ROTATE_SPEED * GetFrameTime();
+            }
+            if (IsKeyDown(KEY_E))
+            {
+                cameraYaw += ISO_CAMERA_ROTATE_SPEED * GetFrameTime();
+            }
+        }
+        UpdateIsoCamera(camera3d, cameraFocusX, cameraFocusY, cameraYaw);
+        Vector2 mouseGround = GetMouseGroundTilePos(camera3d);
 
         if (player.attackCooldown > 0.0f)
         {
@@ -659,9 +867,8 @@ int main()
 
         UpdateWeaponSwing(weaponSwing, GetFrameTime());
 
-        Vector2 mouseWorldForFacing = GetScreenToWorld2D(GetMousePosition(), camera);
-        float facingDeltaX = mouseWorldForFacing.x - (player.x * tileSize + tileSize / 2.0f);
-        float facingDeltaY = mouseWorldForFacing.y - (player.y * tileSize + tileSize / 2.0f);
+        float facingDeltaX = mouseGround.x - (player.x + 0.5f);
+        float facingDeltaY = mouseGround.y - (player.y + 0.5f);
         float facingLength = sqrtf(facingDeltaX * facingDeltaX + facingDeltaY * facingDeltaY);
         if (facingLength > 0.001f) {
             player.facingX = facingDeltaX / facingLength;
@@ -764,8 +971,14 @@ int main()
 
             if (moveInputX != 0.0f || moveInputY != 0.0f) {
                 float inputLength = sqrtf(moveInputX * moveInputX + moveInputY * moveInputY);
-                moveInputX /= inputLength;
-                moveInputY /= inputLength;
+
+                // Rotate screen-relative input into tile space so W walks up-screen under the isometric camera
+                float screenInputX = moveInputX;
+                float screenInputY = moveInputY;
+                float yawSin = sinf(cameraYaw);
+                float yawCos = cosf(cameraYaw);
+                moveInputX = screenInputX * yawCos + screenInputY * yawSin;
+                moveInputY = screenInputY * yawCos - screenInputX * yawSin;
 
                 float moveDistance = PLAYER_MOVE_SPEED * GetFrameTime();
 
@@ -922,16 +1135,20 @@ int main()
        }
        else if (!menuOpen && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
        {
-            Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
-            int clickX = (int)floorf(mouseWorldPos.x / (float)tileSize);
-            int clickY = (int)floorf(mouseWorldPos.y / (float)tileSize);
-            float clickWorldX = mouseWorldPos.x / (float)tileSize;
-            float clickWorldY = mouseWorldPos.y / (float)tileSize;
+           int clickX = (int)floorf(mouseGround.x);
+           int clickY = (int)floorf(mouseGround.y);
+           float clickWorldX = mouseGround.x;
+           float clickWorldY = mouseGround.y;
             bool foundSomething = false;
 
             float reachDeltaX = ((float)clickX + 0.5f) - (player.x + 0.5f);
             float reachDeltaY = ((float)clickY + 0.5f) - (player.y + 0.5f);
-            bool inReach = (reachDeltaX * reachDeltaX + reachDeltaY * reachDeltaY) <= INTERACT_RANGE * INTERACT_RANGE;
+            float modeRange = INTERACT_RANGE;
+            if (currentMode == MODE_SPEAK)
+            {
+                modeRange = SPEAK_RANGE;
+            }
+            bool inReach = (reachDeltaX * reachDeltaX + reachDeltaY * reachDeltaY) <= modeRange * modeRange;
             if (currentMode != MODE_LOOK && !inReach)
             {
                 actionMessage = "Too far away.";
@@ -1075,10 +1292,10 @@ int main()
         if (wheelMove > 0) currentMode = (ActionMode)((currentMode + 1) % 4);
         else if (wheelMove < 0) currentMode = (ActionMode)((currentMode + 3) % 4);
 
-        float targetX = (float)player.x * tileSize + (tileSize / 2.0f);
-        float targetY = (float)player.y * tileSize + (tileSize / 2.0f);
-        camera.target.x += (targetX - camera.target.x) * 10.0f * GetFrameTime();
-        camera.target.y += (targetY - camera.target.y) * 10.0f * GetFrameTime();
+        float targetX = player.x + 0.5f;
+        float targetY = player.y + 0.5f;
+        cameraFocusX += (targetX - cameraFocusX) * 10.0f * GetFrameTime();
+        cameraFocusY += (targetY - cameraFocusY) * 10.0f * GetFrameTime();
 
         bool spaceUsedForExtract = false;
         if (IsKeyPressed(KEY_SPACE) && !menuOpen && IsPlayerOnTile(map, player, TILE_EXTRACT))
@@ -1205,62 +1422,91 @@ int main()
         // --- DRAW GAMEPLAY ---
         BeginDrawing();
         ClearBackground(BLACK);
-        BeginMode2D(camera);
+        BeginMode3D(camera3d);
+        UpdateLighting(lighting, player.x + 0.5f, player.y + 0.5f);
+        if (lighting.ready)
+        {
+            BeginShaderMode(lighting.shader);
+        }
 
-        // Only walk tiles the camera can see. Draw-only: map and explored are untouched.
-        Vector2 viewTopLeft = GetScreenToWorld2D({ 0.0f, 0.0f }, camera);
-        Vector2 viewBottomRight = GetScreenToWorld2D({ (float)GetScreenWidth(), (float)GetScreenHeight() }, camera);
-        int firstTileX = std::max(-30, (int)floorf(viewTopLeft.x / (float)tileSize) - 1);
-        int lastTileX = std::min(MAP_WIDTH + 29, (int)floorf(viewBottomRight.x / (float)tileSize) + 1);
-        int firstTileY = std::max(-30, (int)floorf(viewTopLeft.y / (float)tileSize) - 1);
-        int lastTileY = std::min(MAP_HEIGHT + 29, (int)floorf(viewBottomRight.y / (float)tileSize) + 1);
+        int drawMinX = std::max(0, (int)cameraFocusX - ISO_DRAW_RADIUS);
+        int drawMaxX = std::min(MAP_WIDTH - 1, (int)cameraFocusX + ISO_DRAW_RADIUS);
+        int drawMinY = std::max(0, (int)cameraFocusY - ISO_DRAW_RADIUS);
+        int drawMaxY = std::min(MAP_HEIGHT - 1, (int)cameraFocusY + ISO_DRAW_RADIUS);
 
-        for (int x = firstTileX; x <= lastTileX; x++) {
-            for (int y = firstTileY; y <= lastTileY; y++) {
-                if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) {
-                    int edgeX = std::max(0, std::min(x, MAP_WIDTH - 1));
-                    int edgeY = std::max(0, std::min(y, MAP_HEIGHT - 1));
-                    bool fakeExplored = explored[edgeX][edgeY] && (std::abs(x - edgeX) <= 2) && (std::abs(y - edgeY) <= 2);
-                    if (fakeExplored || !enableFog) {
-                        DrawText("#", x * tileSize + 4, y * tileSize + 2, tileSize, DARKGRAY);
-                    }
+        for (int x = drawMinX; x <= drawMaxX; x++) {
+            for (int y = drawMinY; y <= drawMaxY; y++) {
+                if (enableFog && !explored[x][y]) {
                     continue;
                 }
-                if (explored[x][y] || !enableFog) {
-                    if (map[x][y] == TILE_WALL) DrawText("#", x * tileSize + 4, y * tileSize + 2, tileSize, DARKGRAY);
-                    else if (map[x][y] == TILE_FLOOR) DrawText(".", x * tileSize + 8, y * tileSize + 2, tileSize, ColorAlpha(DARKGRAY, 0.5f));
-                    else if (map[x][y] == TILE_STAIR_UP) DrawText("<", x * tileSize + 4, y * tileSize + 2, tileSize, YELLOW);
-                    else if (map[x][y] == TILE_STAIR_DOWN) DrawText(">", x * tileSize + 4, y * tileSize + 2, tileSize, YELLOW);
-                    else if (map[x][y] == TILE_EXTRACT) DrawText("X", x * tileSize + 4, y * tileSize + 2, tileSize, SKYBLUE);
+
+                TileType tile = map[x][y];
+                float tileCenterX = (float)x + 0.5f;
+                float tileCenterZ = (float)y + 0.5f;
+
+                if (tile == TILE_WALL) {
+                    if (!IsWallExposed(map, x, y)) {
+                        continue;
+                    }
+                    Color wallColor = Color{ 92, 84, 96, 255 };
+                    if ((x * 7 + y * 13) % 3 == 0) {
+                        wallColor = Color{ 84, 76, 88, 255 };
+                    }
+                    Vector3 wallPos = { tileCenterX, WALL_HEIGHT * 0.5f, tileCenterZ };
+                    DrawCube(wallPos, 1.0f, WALL_HEIGHT, 1.0f, wallColor);
+                    DrawCubeWires(wallPos, 1.0f, WALL_HEIGHT, 1.0f, Color{ 40, 34, 44, 255 });
+                    continue;
                 }
+
+                Color floorColor = Color{ 58, 52, 60, 255 };
+                if ((x + y) % 2 == 0) {
+                    floorColor = Color{ 64, 58, 66, 255 };
+                }
+                if (tile == TILE_STAIR_UP) {
+                    floorColor = GOLD;
+                }
+                else if (tile == TILE_STAIR_DOWN) {
+                    floorColor = Color{ 200, 140, 30, 255 };
+                }
+                else if (tile == TILE_EXTRACT) {
+                    floorColor = SKYBLUE;
+                }
+                Vector3 floorPos = { tileCenterX, -FLOOR_THICKNESS * 0.5f, tileCenterZ };
+                DrawCube(floorPos, 1.0f, FLOOR_THICKNESS, 1.0f, floorColor);
             }
         }
+               /* }
+            }
+        }*/
 
         if (!aimingAbilityId.empty()) {
             const AbilityDef* aimingAbility = FindAbility(aimingAbilityId);
             if (aimingAbility != nullptr) {
-                Vector2 aimWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
-                float aimTileX = aimWorldPos.x / (float)tileSize;
-                float aimTileY = aimWorldPos.y / (float)tileSize;
-                DrawTargetingOverlay(player.x + 0.5f, player.y + 0.5f, aimTileX, aimTileY, *aimingAbility, tileSize);
+                // TODO pass 2: draw the aim shape on the ground plane in 3D. mouseGround is the aim point in tile space.
             }
         }
 
         for (const auto& item : groundItems) {
             if (!enableFog || explored[item.x][item.y]) {
-                DrawText("?", item.x * tileSize + 6, item.y * tileSize + 2, tileSize, GOLD);
+                Vector3 itemPos = { (float)item.x + 0.5f, 0.12f, (float)item.y + 0.5f };
+                DrawCube(itemPos, 0.3f, 0.24f, 0.3f, GOLD);
+                DrawCubeWires(itemPos, 0.3f, 0.24f, 0.3f, BLACK);
             }
         }
 
         for (const auto& enemy : enemies) {
             if (!enableFog || explored[(int)(enemy.x + 0.5f)][(int)(enemy.y + 0.5f)]) {
-                const char* enemyChar = TextFormat("%c", enemy.symbol);
-                Color drawColor = enemy.isDead ? GRAY : enemy.color;
-                float rotation = enemy.isDead ? 90.0f : 0.0f;
-                Vector2 textSize = MeasureTextEx(GetFontDefault(), enemyChar, (float)tileSize, 1.0f);
-                Vector2 origin = { textSize.x / 2.0f, textSize.y / 2.0f };
-                Vector2 position = { enemy.x * tileSize + tileSize / 2.0f, enemy.y * tileSize + tileSize / 2.0f };
-                DrawTextPro(GetFontDefault(), enemyChar, position, origin, rotation, (float)tileSize, 1.0f, drawColor);
+                float enemyCenterX = enemy.x + 0.5f;
+                float enemyCenterZ = enemy.y + 0.5f;
+                if (enemy.isDead) {
+                    Vector3 corpsePos = { enemyCenterX, 0.08f, enemyCenterZ };
+                    DrawCube(corpsePos, 0.8f, 0.16f, 0.5f, GRAY);
+                }
+                else {
+                    Vector3 enemyPos = { enemyCenterX, 0.4f, enemyCenterZ };
+                    DrawCube(enemyPos, 0.6f, 0.8f, 0.6f, enemy.color);
+                    DrawCubeWires(enemyPos, 0.6f, 0.8f, 0.6f, BLACK);
+                }
             }
         }
 
@@ -1296,12 +1542,83 @@ int main()
             }
         }
 
-        DrawText("@", player.x* tileSize + 4, player.y* tileSize + 2, tileSize, GREEN);
-        DrawWeaponVisual(weaponSwing, player, tileSize);
+        if (playerModelReady && !DEBUG_DISABLE_PLAYER_MODEL)
+        {
+            float playerYawDegrees = atan2f(player.facingX, player.facingY) * RAD2DEG + PLAYER_MODEL_YAW_OFFSET;
+            Vector3 modelPos = { player.x + 0.5f, 0.0f, player.y + 0.5f };
+            Vector3 yawAxis = { 0.0f, 1.0f, 0.0f };
+            Vector3 modelScale = { PLAYER_MODEL_SCALE, PLAYER_MODEL_SCALE, PLAYER_MODEL_SCALE };
+            float movedX = player.x - lastAnimPlayerX;
+            float movedY = player.y - lastAnimPlayerY;
+            lastAnimPlayerX = player.x;
+            lastAnimPlayerY = player.y;
+            bool animMoving = (movedX * movedX + movedY * movedY) > 0.00001f;
+
+            ModelAnimation* wantedAnim = idleAnim;
+            if (animMoving)
+            {
+                wantedAnim = runAnim;
+            }
+            if (IsKeyPressed(KEY_K))
+            {
+                debugClipIndex++;
+                if (debugClipIndex >= generalAnimCount + moveAnimCount)
+                {
+                    debugClipIndex = -1;
+                }
+            }
+            if (debugClipIndex >= 0)
+            {
+                if (debugClipIndex < generalAnimCount)
+                {
+                    wantedAnim = &generalAnims[debugClipIndex];
+                }
+                else
+                {
+                    wantedAnim = &moveAnims[debugClipIndex - generalAnimCount];
+                }
+            }
+            if (wantedAnim != nullptr && wantedAnim->frameCount > 0)
+            {
+                if (wantedAnim != currentAnim)
+                {
+                    currentAnim = wantedAnim;
+                    currentAnimFrame = 0;
+                    animFrameTimer = 0.0f;
+                }
+                animFrameTimer += GetFrameTime();
+                float frameStep = 1.0f / PLAYER_ANIM_FPS;
+                while (animFrameTimer >= frameStep)
+                {
+                    animFrameTimer -= frameStep;
+                    currentAnimFrame++;
+                }
+                currentAnimFrame = currentAnimFrame % currentAnim->frameCount;
+                UpdateModelAnimation(playerModel, *currentAnim, currentAnimFrame);
+            }
+            rlDrawRenderBatchActive();
+            Matrix modelMatrix = MatrixMultiply(MatrixMultiply(MatrixScale(PLAYER_MODEL_SCALE, PLAYER_MODEL_SCALE, PLAYER_MODEL_SCALE), MatrixRotateY(playerYawDegrees * DEG2RAD)), MatrixTranslate(modelPos.x, modelPos.y, modelPos.z));
+            SetLightingModelMatrix(lighting, modelMatrix);
+            DrawModelEx(playerModel, modelPos, yawAxis, playerYawDegrees, modelScale, WHITE);
+            SetLightingModelMatrix(lighting, MatrixIdentity());
+        }
+        else
+        {
+            Vector3 playerPos = { player.x + 0.5f, 0.45f, player.y + 0.5f };
+        DrawCube(playerPos, 0.5f, 0.9f, 0.5f, GREEN);
+        DrawCubeWires(playerPos, 0.5f, 0.9f, 0.5f, BLACK);
+        Vector3 facingPos = { playerPos.x + player.facingX * 0.45f, 0.6f, playerPos.z + player.facingY * 0.45f };
+        DrawCube(facingPos, 0.18f, 0.18f, 0.18f, YELLOW);
+        }
+        // TODO pass 2: weapon swing needs a 3D version (DrawLine3D from the same grid-space segments)
         if (showNavDebug) {
             navMesh.DrawDebug(tileSize);
         }
-        EndMode2D();
+        if (lighting.ready)
+        {
+            EndShaderMode();
+        }
+        EndMode3D();
         if (currentExpedition != nullptr)
         {
             FloorParams hudFloor = BuildFloorParams(currentExpedition, activeModifierIds, currentFloor + 1);
@@ -1319,6 +1636,56 @@ int main()
             DrawText(floorText.c_str(), (int)(18 * floorTextScale), (int)(18 * floorTextScale), (int)(22 * floorTextScale), GOLD);
         }
         DrawHotbar(player);
+        DrawText(modelStatus.c_str(), 18, GetScreenHeight() - 30, 20, YELLOW);
+        if (debugClipIndex >= 0 && currentAnim != nullptr)
+        {
+            DrawText(TextFormat("Clip: %s", currentAnim->name), 18, GetScreenHeight() - 82, 20, ORANGE);
+        }
+        DrawText(TextFormat("raylib %s", RAYLIB_VERSION), 18, GetScreenHeight() - 108, 20, ORANGE);
+        if (playerModelReady && generalAnimCount > 0)
+        {
+            int compareCount = playerModel.boneCount;
+            if (generalAnims[0].boneCount < compareCount)
+            {
+                compareCount = generalAnims[0].boneCount;
+            }
+            int mismatchCount = 0;
+            int firstMismatch = -1;
+            for (int b = 0; b < compareCount; b++)
+            {
+                std::string modelBone = playerModel.bones[b].name;
+                std::string animBone = generalAnims[0].bones[b].name;
+                if (modelBone != animBone)
+                {
+                    mismatchCount++;
+                    if (firstMismatch < 0)
+                    {
+                        firstMismatch = b;
+                    }
+                }
+            }
+            DrawText(TextFormat("Bones: model %i, anim %i, name mismatches %i", playerModel.boneCount, generalAnims[0].boneCount, mismatchCount), 18, GetScreenHeight() - 134, 20, ORANGE);
+            if (firstMismatch >= 0)
+            {
+                std::string mismatchText = "First mismatch at " + std::to_string(firstMismatch) + ": model '" + std::string(playerModel.bones[firstMismatch].name) + "' vs anim '" + std::string(generalAnims[0].bones[firstMismatch].name) + "'";
+                DrawText(mismatchText.c_str(), 18, GetScreenHeight() - 160, 20, ORANGE);
+            }
+        }
+        int clipListY = 260;
+        for (int a = 0; a < generalAnimCount; a++)
+        {
+            DrawText(generalAnims[a].name, GetScreenWidth() - 260, clipListY, 14, SKYBLUE);
+            clipListY += 16;
+        }
+        for (int a = 0; a < moveAnimCount; a++)
+        {
+            DrawText(moveAnims[a].name, GetScreenWidth() - 260, clipListY, 14, GREEN);
+            clipListY += 16;
+        }
+        if (playerModelReady)
+        {
+            DrawText(TextFormat("Meshes: %i  Materials: %i", playerModel.meshCount, playerModel.materialCount), 18, GetScreenHeight() - 56, 20, YELLOW);
+        }
 
         // HUD / UI
         float hudScale = GetUIScale();
@@ -1506,6 +1873,10 @@ int main()
 
         EndDrawing();
     }
+    UnloadModelAnimations(generalAnims, generalAnimCount);
+    UnloadModelAnimations(moveAnims, moveAnimCount);
+    UnloadModel(playerModel);
+    UnloadLighting(lighting);
 
     CloseWindow();
     return 0;

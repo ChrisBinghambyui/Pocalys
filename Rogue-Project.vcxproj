@@ -146,6 +146,7 @@
     <ClCompile Include="FloorPopulation.cpp" />
     <ClCompile Include="HotbarUI.cpp" />
     <ClCompile Include="ItemData.cpp" />
+    <ClCompile Include="LightingShader.cpp" />
     <ClCompile Include="LineOfSight.cpp" />
     <ClCompile Include="MaterialData.cpp" />
     <ClCompile Include="MenuHubUI.cpp" />
@@ -197,6 +198,7 @@
     <ClInclude Include="HotbarUI.h" />
     <ClInclude Include="Item.h" />
     <ClInclude Include="ItemData.h" />
+    <ClInclude Include="LightingShader.h" />
     <ClInclude Include="LineOfSight.h" />
     <ClInclude Include="MaterialData.h" />
     <ClInclude Include="MenuHubUI.h" />
