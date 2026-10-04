@@ -39,6 +39,8 @@
 #include "Squad.h"
 #include "Alert.h"
 #include "LightingShader.h"
+#include "DungeonTiles.h"
+#include "PlayerAnimation.h"
 #include <string>
 
 const int MAP_WIDTH = 100;
@@ -305,79 +307,77 @@ static bool IsWallExposed(TileType map[MAP_WIDTH][MAP_HEIGHT], int x, int y)
     return false;
 }
 
-const float PLAYER_ANIM_FPS = 30.0f;
-
 // Raylib pairs animation bones to model bones by index. This reorders the animation into the
 // model's bone order by name. False (and the animation is left untouched) if any model bone is missing.
-static bool RemapAnimationToModel(const Model& model, ModelAnimation& anim)
-{
-    if (model.boneCount != anim.boneCount)
-    {
-        return false;
-    }
+//static bool RemapAnimationToModel(const Model& model, ModelAnimation& anim)
+//{
+//    if (model.boneCount != anim.boneCount)
+//    {
+//        return false;
+//    }
+//
+//    int boneCount = model.boneCount;
+//    std::vector<int> animIndexForModelBone(boneCount, -1);
+//    std::vector<int> modelIndexForAnimBone(boneCount, -1);
+//    for (int m = 0; m < boneCount; m++)
+//    {
+//        std::string modelName = model.bones[m].name;
+//        for (int a = 0; a < boneCount; a++)
+//        {
+//            std::string animName = anim.bones[a].name;
+//            if (modelName == animName)
+//            {
+//                animIndexForModelBone[m] = a;
+//                modelIndexForAnimBone[a] = m;
+//                break;
+//            }
+//        }
+//        if (animIndexForModelBone[m] < 0)
+//        {
+//            return false;
+//        }
+//    }
+//
+//    for (int f = 0; f < anim.frameCount; f++)
+//    {
+//        std::vector<Transform> reordered(boneCount);
+//        for (int m = 0; m < boneCount; m++)
+//        {
+//            reordered[m] = anim.framePoses[f][animIndexForModelBone[m]];
+//        }
+//        for (int m = 0; m < boneCount; m++)
+//        {
+//            anim.framePoses[f][m] = reordered[m];
+//        }
+//    }
+//
+//    std::vector<BoneInfo> reorderedBones(boneCount);
+//    for (int m = 0; m < boneCount; m++)
+//    {
+//        reorderedBones[m] = anim.bones[animIndexForModelBone[m]];
+//        if (reorderedBones[m].parent >= 0)
+//        {
+//            reorderedBones[m].parent = modelIndexForAnimBone[reorderedBones[m].parent];
+//        }
+//    }
+//    for (int m = 0; m < boneCount; m++)
+//    {
+//        anim.bones[m] = reorderedBones[m];
+//    }
+//    return true;
+//}
 
-    int boneCount = model.boneCount;
-    std::vector<int> animIndexForModelBone(boneCount, -1);
-    std::vector<int> modelIndexForAnimBone(boneCount, -1);
-    for (int m = 0; m < boneCount; m++)
-    {
-        std::string modelName = model.bones[m].name;
-        for (int a = 0; a < boneCount; a++)
-        {
-            std::string animName = anim.bones[a].name;
-            if (modelName == animName)
-            {
-                animIndexForModelBone[m] = a;
-                modelIndexForAnimBone[a] = m;
-                break;
-            }
-        }
-        if (animIndexForModelBone[m] < 0)
-        {
-            return false;
-        }
-    }
-
-    for (int f = 0; f < anim.frameCount; f++)
-    {
-        std::vector<Transform> reordered(boneCount);
-        for (int m = 0; m < boneCount; m++)
-        {
-            reordered[m] = anim.framePoses[f][animIndexForModelBone[m]];
-        }
-        for (int m = 0; m < boneCount; m++)
-        {
-            anim.framePoses[f][m] = reordered[m];
-        }
-    }
-
-    std::vector<BoneInfo> reorderedBones(boneCount);
-    for (int m = 0; m < boneCount; m++)
-    {
-        reorderedBones[m] = anim.bones[animIndexForModelBone[m]];
-        if (reorderedBones[m].parent >= 0)
-        {
-            reorderedBones[m].parent = modelIndexForAnimBone[reorderedBones[m].parent];
-        }
-    }
-    for (int m = 0; m < boneCount; m++)
-    {
-        anim.bones[m] = reorderedBones[m];
-    }
-    return true;
-}
-
-static ModelAnimation* FindAnimation(ModelAnimation* anims, int count, const std::string& name)
-{
-    for (int i = 0; i < count; i++)
-    {
-        if (name == anims[i].name)
-        {
-            return &anims[i];
-        }
-    }
-    return nullptr;
-}
+//static ModelAnimation* FindAnimation(ModelAnimation* anims, int count, const std::string& name)
+//{
+//    for (int i = 0; i < count; i++)
+//    {
+//        if (name == anims[i].name)
+//        {
+//            return &anims[i];
+//        }
+//    }
+//    return nullptr;
+//}
 
 int main()
 {
@@ -470,30 +470,18 @@ int main()
     LightingState lighting;
     InitLighting(lighting);
 
+    TileKit tileKit;
+    LoadTileKit(tileKit, lighting);
+
     Model playerModel = LoadModel("assets/models/Knight.glb");
     bool playerModelReady = false;
     const bool DEBUG_DISABLE_PLAYER_MODEL = false; // Temporary test, remove after
 
-    int generalAnimCount = 0;
-    int moveAnimCount = 0;
-    ModelAnimation* generalAnims = LoadModelAnimations("assets/animations/gltf/Rig_Medium/Rig_Medium_General.glb", &generalAnimCount);
-    ModelAnimation* moveAnims = LoadModelAnimations("assets/animations/gltf/Rig_Medium/Rig_Medium_MovementBasic.glb", &moveAnimCount);
-    for (int a = 0; a < generalAnimCount; a++)
+    PlayerAnimator playerAnimator;
+    if (playerModel.meshCount > 0)
     {
-        RemapAnimationToModel(playerModel, generalAnims[a]);
+        playerAnimator.Load(playerModel);
     }
-    for (int a = 0; a < moveAnimCount; a++)
-    {
-        RemapAnimationToModel(playerModel, moveAnims[a]);
-    }
-    ModelAnimation* idleAnim = FindAnimation(generalAnims, generalAnimCount, "Idle_A");
-    ModelAnimation* runAnim = FindAnimation(moveAnims, moveAnimCount, "Running_A");
-    ModelAnimation* currentAnim = nullptr;
-    int debugClipIndex = -1; // -1 = normal idle/run logic, 0 and up = forced clip. Press K to cycle.
-    int currentAnimFrame = 0;
-    float animFrameTimer = 0.0f;
-    float lastAnimPlayerX = 0.0f;
-    float lastAnimPlayerY = 0.0f;
     std::string modelStatus = "Model: ";
     if (FileExists("assets/models/Knight.glb"))
     {
@@ -933,6 +921,7 @@ int main()
                 const AbilityDef* pressedAbility = FindAbility(abilityId);
                 if (pressedAbility != nullptr && pressedAbility->shape == ABILITY_SHAPE_SELF) {
                     actionMessage = "Used " + pressedAbility->name + ". (Ability execution isn't wired in yet.)";
+                    playerAnimator.PlayOneShot(GetAbilityAnimCategory(player, *pressedAbility), 0.0f);
                     aimingAbilityId = "";
                 }
                 else {
@@ -1002,6 +991,7 @@ int main()
                     if (dx * dx + dy * dy <= PICKUP_RANGE * PICKUP_RANGE) {
                         player.inventory.push_back(it->item);
                         actionMessage = "Picked up item.";
+                        playerAnimator.PlayOneShot(ANIM_INTERACT, 0.0f);
                         groundItems.erase(it);
                         break;
                     }
@@ -1017,6 +1007,10 @@ int main()
                     firedName = firedAbility->name;
                 }
                 actionMessage = "Fired " + firedName + ". (Ability execution isn't wired in yet.)";
+                if (firedAbility != nullptr)
+                {
+                    playerAnimator.PlayOneShot(GetAbilityAnimCategory(player, *firedAbility), 0.0f);
+                }
                 aimingAbilityId = "";
             }
             else if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && player.attackCooldown <= 0.0f)
@@ -1047,7 +1041,7 @@ int main()
                 player.attackCooldown = swingSeconds; // A whiff costs the same time as a hit
                 DamageType swingType = ChooseSwingDamageType(player, moveInputX, moveInputY);
                 StartWeaponSwing(weaponSwing, player, swingType, swingSeconds * 0.7f);
-
+                playerAnimator.PlayOneShot(GetMeleeAnimCategory(swingType), swingSeconds);
                 if (targetEnemy != nullptr) {
                     ResolveBumpAttack(player, *targetEnemy, actionMessage, swingType);
                 }
@@ -1149,6 +1143,10 @@ int main()
                 modeRange = SPEAK_RANGE;
             }
             bool inReach = (reachDeltaX * reachDeltaX + reachDeltaY * reachDeltaY) <= modeRange * modeRange;
+            if (currentMode != MODE_LOOK && inReach)
+            {
+                playerAnimator.PlayOneShot(ANIM_INTERACT, 0.0f);
+            }
             if (currentMode != MODE_LOOK && !inReach)
             {
                 actionMessage = "Too far away.";
@@ -1283,6 +1281,64 @@ int main()
         if (IsKeyPressed(KEY_F)) enableFog = !enableFog;
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
         if (IsKeyPressed(KEY_N)) showNavDebug = !showNavDebug;
+        if (IsKeyPressed(KEY_P))
+        {
+            int dumpCenterX = (int)(player.x + 0.5f);
+            int dumpCenterY = (int)(player.y + 0.5f);
+            std::string dumpText = "Player tile " + std::to_string(dumpCenterX) + "," + std::to_string(dumpCenterY) + "  camera yaw " + std::to_string(cameraYaw) + "\n";
+            dumpText += "Legend: # wall, . floor, < up stair, > down stair, E extract, P player. Columns are x, rows are y.\n";
+            for (int dumpY = dumpCenterY - 12; dumpY <= dumpCenterY + 12; dumpY++)
+            {
+                for (int dumpX = dumpCenterX - 20; dumpX <= dumpCenterX + 20; dumpX++)
+                {
+                    char dumpChar = ' ';
+                    if (dumpX >= 0 && dumpX < MAP_WIDTH && dumpY >= 0 && dumpY < MAP_HEIGHT)
+                    {
+                        TileType dumpTile = map[dumpX][dumpY];
+                        if (dumpTile == TILE_WALL)
+                        {
+                            dumpChar = '#';
+                        }
+                        else if (dumpTile == TILE_STAIR_UP)
+                        {
+                            dumpChar = '<';
+                        }
+                        else if (dumpTile == TILE_STAIR_DOWN)
+                        {
+                            dumpChar = '>';
+                        }
+                        else if (dumpTile == TILE_EXTRACT)
+                        {
+                            dumpChar = 'E';
+                        }
+                        else
+                        {
+                            dumpChar = '.';
+                        }
+                        if (dumpX == dumpCenterX && dumpY == dumpCenterY)
+                        {
+                            dumpChar = 'P';
+                        }
+                    }
+                    dumpText += dumpChar;
+                }
+                dumpText += "\n";
+            }
+            SaveFileText("mapdump.txt", (char*)dumpText.c_str());
+            actionMessage = "Wrote mapdump.txt";
+        }
+        if (IsKeyPressed(KEY_Z)) CORNER_PULL -= 0.05f;
+        if (IsKeyPressed(KEY_X)) CORNER_PULL += 0.05f;
+        if (IsKeyPressed(KEY_C)) CONVEX_PULL -= 0.05f;
+        if (IsKeyPressed(KEY_V)) CONVEX_PULL += 0.05f;
+        if (IsKeyPressed(KEY_J)) CORNER_YAW_OFFSET -= 5.0f;
+        if (IsKeyPressed(KEY_K)) CORNER_YAW_OFFSET += 5.0f;
+        if (IsKeyPressed(KEY_COMMA)) CONVEX_EXTRA_YAW -= 5.0f;
+        if (IsKeyPressed(KEY_PERIOD)) CONVEX_EXTRA_YAW += 5.0f;
+        if (IsKeyPressed(KEY_Z) || IsKeyPressed(KEY_X) || IsKeyPressed(KEY_C) || IsKeyPressed(KEY_V) || IsKeyPressed(KEY_J) || IsKeyPressed(KEY_K) || IsKeyPressed(KEY_COMMA) || IsKeyPressed(KEY_PERIOD))
+        {
+            actionMessage = "Pull " + std::to_string(CORNER_PULL) + "  Yaw " + std::to_string(CORNER_YAW_OFFSET) + "  ConvexPull " + std::to_string(CONVEX_PULL) + "  ConvexYaw " + std::to_string(CONVEX_EXTRA_YAW);
+        }
         if (!IsPlayerOnTile(map, player, TILE_EXTRACT))
         {
             extractArmed = false;
@@ -1429,6 +1485,38 @@ int main()
             BeginShaderMode(lighting.shader);
         }
 
+        auto isPostTile = [&](int postX, int postY) -> bool {
+            if (postX < 0 || postX >= MAP_WIDTH || postY < 0 || postY >= MAP_HEIGHT) {
+                return false;
+            }
+            if (map[postX][postY] != TILE_WALL) {
+                return false;
+            }
+            int postSides[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+            for (int s = 0; s < 4; s++) {
+                int sideX = postX + postSides[s][0];
+                int sideY = postY + postSides[s][1];
+                if (sideX < 0 || sideX >= MAP_WIDTH || sideY < 0 || sideY >= MAP_HEIGHT) {
+                    continue;
+                }
+                if (map[sideX][sideY] != TILE_WALL) {
+                    return false;
+                }
+            }
+            int postDiags[4][2] = { { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } };
+            for (int d = 0; d < 4; d++) {
+                int diagX = postX + postDiags[d][0];
+                int diagY = postY + postDiags[d][1];
+                if (diagX < 0 || diagX >= MAP_WIDTH || diagY < 0 || diagY >= MAP_HEIGHT) {
+                    continue;
+                }
+                if (map[diagX][diagY] != TILE_WALL) {
+                    return true;
+                }
+            }
+            return false;
+            };
+
         int drawMinX = std::max(0, (int)cameraFocusX - ISO_DRAW_RADIUS);
         int drawMaxX = std::min(MAP_WIDTH - 1, (int)cameraFocusX + ISO_DRAW_RADIUS);
         int drawMinY = std::max(0, (int)cameraFocusY - ISO_DRAW_RADIUS);
@@ -1443,6 +1531,143 @@ int main()
                 TileType tile = map[x][y];
                 float tileCenterX = (float)x + 0.5f;
                 float tileCenterZ = (float)y + 0.5f;
+
+                if (tileKit.floorReady && tileKit.wallReady)
+                {
+                    if (tile == TILE_WALL && tileKit.floorReady && tileKit.wallReady && IsWallExposed(map, x, y))
+                    {
+                        DrawKitFloor(tileKit, lighting, x, y);
+                    }
+                    if (tile == TILE_WALL)
+                    {
+                        if (!IsWallExposed(map, x, y))
+                        {
+                            continue;
+                        }
+
+                        if (tileKit.cornerReady)
+                        {
+                            int cornerDirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+                            bool anySideOpen = false;
+                            for (int c = 0; c < 4; c++)
+                            {
+                                int cornerNeighborX = x + cornerDirs[c][0];
+                                int cornerNeighborY = y + cornerDirs[c][1];
+                                if (cornerNeighborX < 0 || cornerNeighborX >= MAP_WIDTH || cornerNeighborY < 0 || cornerNeighborY >= MAP_HEIGHT)
+                                {
+                                    continue;
+                                }
+                                if (map[cornerNeighborX][cornerNeighborY] != TILE_WALL)
+                                {
+                                    anySideOpen = true;
+                                }
+                            }
+                            if (!anySideOpen)
+                            {
+                                int diagDirs[4][2] = { { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } };
+                                for (int d = 0; d < 4; d++)
+                                {
+                                    int diagX = x + diagDirs[d][0];
+                                    int diagY = y + diagDirs[d][1];
+                                    if (diagX < 0 || diagX >= MAP_WIDTH || diagY < 0 || diagY >= MAP_HEIGHT)
+                                    {
+                                        continue;
+                                    }
+                                    if (map[diagX][diagY] != TILE_WALL)
+                                    {
+                                        DrawKitCorner(tileKit, lighting, x, y, diagDirs[d][0], diagDirs[d][1]);
+                                    }
+                                }
+                                continue;
+                            }
+                        }
+
+                        if (tileKit.cornerReady)
+                        {
+                            int convexDirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+                            int convexSumX = 0;
+                            int convexSumY = 0;
+                            int convexOpenCount = 0;
+                            for (int c = 0; c < 4; c++)
+                            {
+                                int convexNeighborX = x + convexDirs[c][0];
+                                int convexNeighborY = y + convexDirs[c][1];
+                                if (convexNeighborX < 0 || convexNeighborX >= MAP_WIDTH || convexNeighborY < 0 || convexNeighborY >= MAP_HEIGHT)
+                                {
+                                    continue;
+                                }
+                                if (map[convexNeighborX][convexNeighborY] == TILE_WALL)
+                                {
+                                    continue;
+                                }
+                                convexSumX += convexDirs[c][0];
+                                convexSumY += convexDirs[c][1];
+                                convexOpenCount++;
+                            }
+                            bool convexNextToPost = false;
+                            for (int c = 0; c < 4; c++)
+                            {
+                                if (isPostTile(x + convexDirs[c][0], y + convexDirs[c][1]))
+                                {
+                                    convexNextToPost = true;
+                                }
+                            }
+                            if (convexOpenCount == 2 && (convexSumX != 0 || convexSumY != 0))
+                            {
+                                DrawKitCorner(tileKit, lighting, x, y, convexSumX, convexSumY, CONVEX_EXTRA_YAW, CONVEX_PULL);
+                                continue;
+                            }
+                        }
+
+                        int sideDirs[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+                        bool drewFace = false;
+                        for (int d = 0; d < 4; d++)
+                        {
+                            int neighborX = x + sideDirs[d][0];
+                            int neighborY = y + sideDirs[d][1];
+                            if (neighborX < 0 || neighborX >= MAP_WIDTH || neighborY < 0 || neighborY >= MAP_HEIGHT)
+                            {
+                                continue;
+                            }
+                            if (map[neighborX][neighborY] == TILE_WALL)
+                            {
+                                continue;
+                            }
+                            DrawKitWall(tileKit, lighting, x, y, sideDirs[d][0], sideDirs[d][1]);
+                            drewFace = true;
+                        }
+                        /*if (!drewFace)
+                        {
+                            int diagDirs[4][2] = { { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } };
+                            for (int d = 0; d < 4; d++)
+                            {
+                                int diagX = x + diagDirs[d][0];
+                                int diagY = y + diagDirs[d][1];
+                                if (diagX < 0 || diagX >= MAP_WIDTH || diagY < 0 || diagY >= MAP_HEIGHT)
+                                {
+                                    continue;
+                                }
+                                if (map[diagX][diagY] == TILE_WALL)
+                                {
+                                    continue;
+                                }
+                                if (tileKit.cornerReady)
+                                {
+                                    DrawKitCorner(tileKit, lighting, x, y, diagDirs[d][0], diagDirs[d][1]);
+                                }
+                                else
+                                {
+                                    DrawKitWall(tileKit, lighting, x, y, diagDirs[d][0], diagDirs[d][1]);
+                                }
+                            }
+                        }*/
+                    }
+                    else
+                    {
+                        DrawKitFloor(tileKit, lighting, x, y);
+                    }
+                    continue;
+                }
 
                 if (tile == TILE_WALL) {
                     if (!IsWallExposed(map, x, y)) {
@@ -1483,6 +1708,41 @@ int main()
             const AbilityDef* aimingAbility = FindAbility(aimingAbilityId);
             if (aimingAbility != nullptr) {
                 // TODO pass 2: draw the aim shape on the ground plane in 3D. mouseGround is the aim point in tile space.
+            }
+        }
+
+        if (tileKit.floorReady && tileKit.wallReady)
+        {
+            ResetKitLighting(lighting);
+            for (int x = drawMinX; x <= drawMaxX; x++)
+            {
+                for (int y = drawMinY; y <= drawMaxY; y++)
+                {
+                    if (enableFog && !explored[x][y])
+                    {
+                        continue;
+                    }
+                    TileType markerTile = map[x][y];
+                    Color markerColor = BLANK;
+                    if (markerTile == TILE_STAIR_UP)
+                    {
+                        markerColor = GOLD;
+                    }
+                    else if (markerTile == TILE_STAIR_DOWN)
+                    {
+                        markerColor = Color{ 200, 140, 30, 255 };
+                    }
+                    else if (markerTile == TILE_EXTRACT)
+                    {
+                        markerColor = SKYBLUE;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                    Vector3 padPos = { (float)x + 0.5f, 0.02f, (float)y + 0.5f };
+                    DrawCube(padPos, 0.8f, 0.04f, 0.8f, markerColor);
+                }
             }
         }
 
@@ -1548,54 +1808,7 @@ int main()
             Vector3 modelPos = { player.x + 0.5f, 0.0f, player.y + 0.5f };
             Vector3 yawAxis = { 0.0f, 1.0f, 0.0f };
             Vector3 modelScale = { PLAYER_MODEL_SCALE, PLAYER_MODEL_SCALE, PLAYER_MODEL_SCALE };
-            float movedX = player.x - lastAnimPlayerX;
-            float movedY = player.y - lastAnimPlayerY;
-            lastAnimPlayerX = player.x;
-            lastAnimPlayerY = player.y;
-            bool animMoving = (movedX * movedX + movedY * movedY) > 0.00001f;
-
-            ModelAnimation* wantedAnim = idleAnim;
-            if (animMoving)
-            {
-                wantedAnim = runAnim;
-            }
-            if (IsKeyPressed(KEY_K))
-            {
-                debugClipIndex++;
-                if (debugClipIndex >= generalAnimCount + moveAnimCount)
-                {
-                    debugClipIndex = -1;
-                }
-            }
-            if (debugClipIndex >= 0)
-            {
-                if (debugClipIndex < generalAnimCount)
-                {
-                    wantedAnim = &generalAnims[debugClipIndex];
-                }
-                else
-                {
-                    wantedAnim = &moveAnims[debugClipIndex - generalAnimCount];
-                }
-            }
-            if (wantedAnim != nullptr && wantedAnim->frameCount > 0)
-            {
-                if (wantedAnim != currentAnim)
-                {
-                    currentAnim = wantedAnim;
-                    currentAnimFrame = 0;
-                    animFrameTimer = 0.0f;
-                }
-                animFrameTimer += GetFrameTime();
-                float frameStep = 1.0f / PLAYER_ANIM_FPS;
-                while (animFrameTimer >= frameStep)
-                {
-                    animFrameTimer -= frameStep;
-                    currentAnimFrame++;
-                }
-                currentAnimFrame = currentAnimFrame % currentAnim->frameCount;
-                UpdateModelAnimation(playerModel, *currentAnim, currentAnimFrame);
-            }
+            playerAnimator.Update(playerModel, GetFrameTime(), player.x, player.y);
             rlDrawRenderBatchActive();
             Matrix modelMatrix = MatrixMultiply(MatrixMultiply(MatrixScale(PLAYER_MODEL_SCALE, PLAYER_MODEL_SCALE, PLAYER_MODEL_SCALE), MatrixRotateY(playerYawDegrees * DEG2RAD)), MatrixTranslate(modelPos.x, modelPos.y, modelPos.z));
             SetLightingModelMatrix(lighting, modelMatrix);
@@ -1637,42 +1850,16 @@ int main()
         }
         DrawHotbar(player);
         DrawText(modelStatus.c_str(), 18, GetScreenHeight() - 30, 20, YELLOW);
-        if (debugClipIndex >= 0 && currentAnim != nullptr)
+        DrawText(TextFormat("Corner pull %.2f  yaw %.1f", CORNER_PULL, CORNER_YAW_OFFSET), 18, GetScreenHeight() - 134, 20, GREEN);
+        DrawText(TextFormat("Convex pull %.2f  yaw %.1f", CONVEX_PULL, CONVEX_EXTRA_YAW), 18, GetScreenHeight() - 160, 20, GREEN);
+        DrawText(TextFormat("Player tile %d,%d   Mouse tile %d,%d", (int)(player.x + 0.5f), (int)(player.y + 0.5f), (int)floorf(mouseGround.x), (int)floorf(mouseGround.y)), 18, GetScreenHeight() - 186, 20, GREEN);
+        std::vector<std::string> animLines = playerAnimator.GetMappingLines();
+        for (size_t a = 0; a < animLines.size(); a++)
         {
-            DrawText(TextFormat("Clip: %s", currentAnim->name), 18, GetScreenHeight() - 82, 20, ORANGE);
+            DrawText(animLines[a].c_str(), GetScreenWidth() - 300, 260 + (int)a * 18, 16, SKYBLUE);
         }
         DrawText(TextFormat("raylib %s", RAYLIB_VERSION), 18, GetScreenHeight() - 108, 20, ORANGE);
-        if (playerModelReady && generalAnimCount > 0)
-        {
-            int compareCount = playerModel.boneCount;
-            if (generalAnims[0].boneCount < compareCount)
-            {
-                compareCount = generalAnims[0].boneCount;
-            }
-            int mismatchCount = 0;
-            int firstMismatch = -1;
-            for (int b = 0; b < compareCount; b++)
-            {
-                std::string modelBone = playerModel.bones[b].name;
-                std::string animBone = generalAnims[0].bones[b].name;
-                if (modelBone != animBone)
-                {
-                    mismatchCount++;
-                    if (firstMismatch < 0)
-                    {
-                        firstMismatch = b;
-                    }
-                }
-            }
-            DrawText(TextFormat("Bones: model %i, anim %i, name mismatches %i", playerModel.boneCount, generalAnims[0].boneCount, mismatchCount), 18, GetScreenHeight() - 134, 20, ORANGE);
-            if (firstMismatch >= 0)
-            {
-                std::string mismatchText = "First mismatch at " + std::to_string(firstMismatch) + ": model '" + std::string(playerModel.bones[firstMismatch].name) + "' vs anim '" + std::string(generalAnims[0].bones[firstMismatch].name) + "'";
-                DrawText(mismatchText.c_str(), 18, GetScreenHeight() - 160, 20, ORANGE);
-            }
-        }
-        int clipListY = 260;
-        for (int a = 0; a < generalAnimCount; a++)
+       /* for (int a = 0; a < generalAnimCount; a++)
         {
             DrawText(generalAnims[a].name, GetScreenWidth() - 260, clipListY, 14, SKYBLUE);
             clipListY += 16;
@@ -1681,7 +1868,7 @@ int main()
         {
             DrawText(moveAnims[a].name, GetScreenWidth() - 260, clipListY, 14, GREEN);
             clipListY += 16;
-        }
+        }*/
         if (playerModelReady)
         {
             DrawText(TextFormat("Meshes: %i  Materials: %i", playerModel.meshCount, playerModel.materialCount), 18, GetScreenHeight() - 56, 20, YELLOW);
@@ -1873,9 +2060,9 @@ int main()
 
         EndDrawing();
     }
-    UnloadModelAnimations(generalAnims, generalAnimCount);
-    UnloadModelAnimations(moveAnims, moveAnimCount);
+    playerAnimator.Unload();
     UnloadModel(playerModel);
+    UnloadTileKit(tileKit);
     UnloadLighting(lighting);
 
     CloseWindow();

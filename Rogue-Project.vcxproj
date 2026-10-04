@@ -134,6 +134,7 @@
     <ClCompile Include="CharacterSheetState.cpp" />
     <ClCompile Include="Combat.cpp" />
     <ClCompile Include="DungeonGen.cpp" />
+    <ClCompile Include="DungeonTiles.cpp" />
     <ClCompile Include="Durability.cpp" />
     <ClCompile Include="Enemybehavior.cpp" />
     <ClCompile Include="EnemyData.cpp" />
@@ -152,6 +153,7 @@
     <ClCompile Include="MenuHubUI.cpp" />
     <ClCompile Include="MetaSave.cpp" />
     <ClCompile Include="Navmesh.cpp" />
+    <ClCompile Include="PlayerAnimation.cpp" />
     <ClCompile Include="RaceData.cpp" />
     <ClCompile Include="Rogue-Project.cpp" />
     <ClCompile Include="RosterData.cpp" />
@@ -184,6 +186,7 @@
     <ClInclude Include="Combat.h" />
     <ClInclude Include="DungeonData.h" />
     <ClInclude Include="DungeonGen.h" />
+    <ClInclude Include="DungeonTiles.h" />
     <ClInclude Include="Durability.h" />
     <ClInclude Include="Enemy.h" />
     <ClInclude Include="Enemybehavior.h" />
@@ -205,6 +208,7 @@
     <ClInclude Include="MetaSave.h" />
     <ClInclude Include="Navmesh.h" />
     <ClInclude Include="Player.h" />
+    <ClInclude Include="PlayerAnimation.h" />
     <ClInclude Include="RaceData.h" />
     <ClInclude Include="RosterData.h" />
     <ClInclude Include="RosterUI.h" />
